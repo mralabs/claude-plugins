@@ -1,4 +1,5 @@
 ---
+name: devil-review
 description: "The devil is in the details — adversarial review that finds what's hiding in your diff"
 argument-hint: "[--scope auto|working-tree|branch|pr] [--base <ref>] [--pr <number>] [focus text]"
 disable-model-invocation: true

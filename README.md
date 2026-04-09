@@ -8,13 +8,13 @@ Claude Code plugin marketplace by [mralabs](https://github.com/mralabs).
 # Add marketplace
 /plugin marketplace add mralabs/claude-plugins
 
-# Install a plugin
-/plugin install devil-review@mralabs
+# Install plugin
+/plugin install mra@mralabs
 ```
 
-## Plugins
+## Skills
 
-### devil-review
+### mra:devil-review
 
 > *The devil is in the details.*
 
@@ -29,7 +29,7 @@ Adversarial code review that finds the subtle bugs, race conditions, and violate
 /devil-review concurrency handling     # focus on specific area
 ```
 
-[Full documentation](plugins/devil-review/)
+[Full documentation](plugins/mra/)
 
 ## License
 
