@@ -9,13 +9,13 @@
   },
   "plugins": [
     {
-      "name": "mra",
-      "description": "mralabs Claude Code skills — adversarial review, and more to come.",
-      "version": "1.1.0",
+      "name": "devil-review",
+      "description": "The devil is in the details — adversarial code review that finds the subtle bugs, race conditions, and violated invariants hiding in your diff.",
+      "version": "1.0.0",
       "author": {
         "name": "mralabs"
       },
-      "source": "./plugins/mra"
+      "source": "./plugins/devil-review"
     }
   ]
 }
