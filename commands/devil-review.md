@@ -102,6 +102,26 @@ Assemble as:
 
 ---
 
+## Step 3.5 — Large Diff Guard
+
+After collecting the diff, estimate its size:
+
+1. Run `git diff --stat` (or the equivalent for your mode) and count total lines changed
+2. If the diff exceeds **1500 lines changed**:
+   - Group changed files by directory or module
+   - Review each group separately, one at a time
+   - Maintain a running list of findings across groups
+   - In the final output, note: `Scope: split review (N files across M groups)`
+3. If a **single file** diff exceeds **800 lines**:
+   - Focus on the public API surface, error handling paths, and state mutations
+   - Note in the finding: `[partial-review]` — full file was too large for line-by-line analysis
+4. If the diff exceeds **5000 lines changed**:
+   - Warn the user upfront: "This diff is very large (N lines). Review will focus on high-risk areas. Consider splitting the change for deeper review."
+   - Prioritize files that touch: error handling, state management, concurrency, auth, and data persistence
+   - Skip test files and generated files unless they are the focus
+
+---
+
 ## Step 4 — Review
 
 ### Pre-review context (mandatory)
@@ -202,6 +222,7 @@ Return your review in this exact format:
 # Devil Review
 
 Target: <"working tree diff" or "branch diff against <ref>">
+Scope: <N files, M lines changed> [or "split review (N files across M groups)" if large]
 Verdict: <approve | needs-attention>
 
 <1-2 sentence ship/no-ship assessment — terse, not neutral>

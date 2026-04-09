@@ -67,6 +67,7 @@ claude /plugin install mralabs/devil-review
 # Devil Review
 
 Target: working tree diff
+Scope: 4 files, 127 lines changed
 Verdict: needs-attention
 
 Unguarded concurrent write to shared config — data loss under parallel requests.
