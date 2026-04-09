@@ -1,6 +1,6 @@
 {
   "name": "devil-review",
-  "description": "Adversarial code review that tries to break confidence in the change, not validate it. Finds subtle bugs, race conditions, and violated invariants.",
+  "description": "The devil is in the details — adversarial code review that finds the subtle bugs, race conditions, and violated invariants hiding in your diff.",
   "author": {
     "name": "mralabs",
     "url": "https://github.com/mralabs"

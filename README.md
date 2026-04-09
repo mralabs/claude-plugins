@@ -1,8 +1,10 @@
 # devil-review
 
+> *The devil is in the details.*
+
 Adversarial code review plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-The devil is in the details. This plugin reviews your changes with skepticism — it tries to **break confidence** in the change, not validate it. Finds subtle bugs, race conditions, violated invariants, and unhandled failure paths that conventional reviews miss.
+Every diff has dark corners — the edge case nobody tested, the race condition that only fires under load, the invariant that quietly stopped being true three functions up the call chain. **devil-review** goes looking for them. It reviews your changes with skepticism, trying to **break confidence** in the change rather than validate it.
 
 ## Install
 

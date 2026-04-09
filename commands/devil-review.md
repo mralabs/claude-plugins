@@ -1,5 +1,5 @@
 ---
-description: "Adversarial code review — tries to break confidence in the change, not validate it"
+description: "The devil is in the details — adversarial review that finds what's hiding in your diff"
 argument-hint: "[--scope auto|working-tree|branch] [--base <ref>] [focus text]"
 disable-model-invocation: true
 allowed-tools: ["Read", "Glob", "Grep", "Bash"]
