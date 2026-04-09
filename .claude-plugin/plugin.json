@@ -1,0 +1,8 @@
+{
+  "name": "devil-review",
+  "description": "Adversarial code review that tries to break confidence in the change, not validate it. Finds subtle bugs, race conditions, and violated invariants.",
+  "author": {
+    "name": "mralabs",
+    "url": "https://github.com/mralabs"
+  }
+}
