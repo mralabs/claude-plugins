@@ -1,6 +1,6 @@
 ---
 description: "The devil is in the details — adversarial review that finds what's hiding in your diff"
-argument-hint: "[--scope auto|working-tree|branch] [--base <ref>] [focus text]"
+argument-hint: "[--scope auto|working-tree|branch|pr] [--base <ref>] [--pr <number>] [focus text]"
 disable-model-invocation: true
 allowed-tools: ["Read", "Glob", "Grep", "Bash(git:*)"]
 context: fork
@@ -19,20 +19,22 @@ Raw slash-command arguments:
 ## Step 1 — Parse Arguments
 
 Parse the raw arguments:
-- `--scope <auto|working-tree|branch>` — review target scope (default: `auto`)
+- `--scope <auto|working-tree|branch|pr>` — review target scope (default: `auto`)
 - `--base <ref>` — explicit base ref for branch diff
+- `--pr <number>` — GitHub PR number to review (implies `--scope pr`)
 - Everything else after flags → `FOCUS_TEXT`
 
 ---
 
 ## Step 2 — Resolve Review Target
 
-1. If `--base <ref>` is given → **branch mode** against that ref
-2. If `--scope working-tree` → **working-tree mode**
-3. If `--scope branch` → **branch mode**, detect default branch:
+1. If `--pr <number>` is given or `--scope pr` → **PR mode**
+2. If `--base <ref>` is given → **branch mode** against that ref
+3. If `--scope working-tree` → **working-tree mode**
+4. If `--scope branch` → **branch mode**, detect default branch:
    - Try `git symbolic-ref refs/remotes/origin/HEAD`
    - Fall back to checking `main`, `master`, `trunk` (local then remote)
-4. If `--scope auto` (default):
+5. If `--scope auto` (default):
    - Run `git status --short` + `git diff --shortstat` + `git diff --cached --shortstat`
    - If working tree is dirty (staged, unstaged, or untracked files) → **working-tree mode**
    - If clean → **branch mode** against detected default branch
@@ -40,6 +42,40 @@ Parse the raw arguments:
 ---
 
 ## Step 3 — Collect Review Context
+
+### PR mode
+
+Requires `gh` CLI. If `gh` is not available, error with: "PR mode requires the GitHub CLI (`gh`). Install it from https://cli.github.com or use `--scope branch` instead."
+
+```
+gh pr view <number> --json title,body,baseRefName,headRefName,commits,files
+gh pr diff <number>
+```
+
+Assemble as:
+```
+## PR Info
+Title: <title>
+Base: <baseRefName> ← <headRefName>
+Description: <body, first 500 chars>
+
+## Changed Files
+<files list>
+
+## PR Diff
+<full diff output>
+```
+
+If the PR has review comments, also collect them:
+```
+gh api repos/{owner}/{repo}/pulls/<number>/comments --jq '.[].body'
+```
+
+Include as:
+```
+## Existing Review Comments
+<comments, if any — avoid duplicating findings already raised>
+```
 
 ### Working-tree mode
 

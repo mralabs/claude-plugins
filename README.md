@@ -27,6 +27,9 @@ claude /plugin install mralabs/devil-review
 # Review against a specific base ref
 /devil-review --base feature/auth
 
+# Review a GitHub PR
+/devil-review --pr 42
+
 # Focus on a specific area
 /devil-review PTY lifecycle cleanup
 
