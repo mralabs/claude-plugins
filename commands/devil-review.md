@@ -2,7 +2,7 @@
 description: "The devil is in the details — adversarial review that finds what's hiding in your diff"
 argument-hint: "[--scope auto|working-tree|branch] [--base <ref>] [focus text]"
 disable-model-invocation: true
-allowed-tools: ["Read", "Glob", "Grep", "Bash"]
+allowed-tools: ["Read", "Glob", "Grep", "Bash(git:*)"]
 context: fork
 agent: Explore
 ---
@@ -108,8 +108,8 @@ Assemble as:
 
 Before analyzing the diff, you MUST read these files to avoid false positives:
 
-1. **CLAUDE.md** — If present, read the "Architectural Decisions" section. These are intentional choices that must not be flagged as issues.
-2. **Active task spec** — Search `.kite/board/tasks/*.md` or similar task tracking files for in-progress specs. If a finding matches a spec decision, mark it as `[spec-accepted]` severity instead of a bug.
+1. **CLAUDE.md** — If present, read the "Architectural Decisions" section (or equivalent). These are intentional choices that must not be flagged as issues.
+2. **Active specs / RFCs** — Look for in-progress feature specs in common locations (e.g., `docs/`, `specs/`, `rfcs/`, `.claude/rfcs/`, task board files). If a finding matches a spec decision, mark it as `[spec-accepted]` severity instead of a bug. Skip this step if no spec files are found.
 3. **Changed function callers/callees** — For each function added or modified in the diff, grep for its name across the codebase to find callers. Read the calling code to understand the contract.
 
 If any of these reads reveal that a potential finding is intentional or already addressed, drop it before including it in the output.
@@ -149,6 +149,13 @@ Cross-reference with CLAUDE.md architectural decisions — if the change violate
 
 **Cross-file call chain tracing**: For each changed function, trace its callers and callees across files. Read the surrounding code, not just the diff. The most dangerous bugs live at call boundaries — where a function's assumptions about its caller or callee are violated by the change. Example: if `save_config()` calls `ensure_board_initialized()`, read both to check if the initialization contract still holds after the change.
 </review_method>
+
+<severity_definitions>
+- **critical** — data loss, security breach, crash, or corruption that affects all users. Ship-blocking.
+- **high** — incorrect behavior under realistic conditions (not just theoretical). Likely to cause user-visible bugs or silent data issues.
+- **medium** — edge case failure, degraded behavior under stress, or a missing guard that could escalate if the surrounding code changes.
+- **low** — minor robustness gap or latent risk. Unlikely to bite today but worth noting.
+</severity_definitions>
 
 <finding_bar>
 Report only material findings.

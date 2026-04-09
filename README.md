@@ -69,18 +69,19 @@ claude /plugin install mralabs/devil-review
 Target: working tree diff
 Verdict: needs-attention
 
-One critical race condition in board save path.
+Unguarded concurrent write to shared config — data loss under parallel requests.
 
 ## Findings
 
-### [critical] Title
-- **File**: `path/to/file`
+### [critical] Write race in config save
+- **File**: `src/config/manager.ts`
 - **Lines**: L42-L58
 - **Confidence**: 0.9
 
-<description of what can go wrong and why>
+Two callers can read-modify-write the config file simultaneously.
+The second write silently overwrites the first, losing its changes.
 
-**Recommendation**: <concrete fix>
+**Recommendation**: Add a file lock or serialize writes through a queue.
 ```
 
 ## License
