@@ -1,5 +1,7 @@
 # Domain checklist — UI / View layer
 
+**Authoritative loading rules live in `SKILL.md` Step 5.** This list is a human-readable summary of when the checklist applies. If the two drift, SKILL.md wins.
+
 Load this checklist when the diff touches:
 - `.vue`, `.tsx`, `.jsx`, `.svelte` files
 - `.html` templates with dynamic bindings

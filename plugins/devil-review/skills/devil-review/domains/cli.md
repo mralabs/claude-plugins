@@ -1,5 +1,7 @@
 # Domain checklist — CLI tool
 
+**Authoritative loading rules live in `SKILL.md` Step 5.** This list is a human-readable summary of when the checklist applies. If the two drift, SKILL.md wins.
+
 Load this checklist when the diff touches:
 - executable entry points: `bin/`, `cmd/`, `#!/usr/bin/env …` shebangs, `main()` functions in a project whose `package.json` / `Cargo.toml` / `pyproject.toml` declares a binary/script target
 - argument parsing: `commander`, `yargs`, `clap`, `argparse`, `cobra`, `click`, `docopt`, `oclif`

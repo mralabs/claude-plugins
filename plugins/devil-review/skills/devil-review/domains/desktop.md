@@ -1,5 +1,7 @@
 # Domain checklist — Desktop app
 
+**Authoritative loading rules live in `SKILL.md` Step 5.** This list is a human-readable summary of when the checklist applies. If the two drift, SKILL.md wins.
+
 Load this checklist when the diff touches:
 - **Electron**: `main.ts`/`main.js`, `preload.ts`/`preload.js`, references to `BrowserWindow`, `ipcMain`, `ipcRenderer`, `app.on`, `session`, `protocol.register*`
 - **Tauri**: `src-tauri/**`, `tauri.conf.json`, `#[tauri::command]` exports, Rust commands bridged to JS

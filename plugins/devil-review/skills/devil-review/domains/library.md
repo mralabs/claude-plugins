@@ -1,5 +1,7 @@
 # Domain checklist — Library / SDK
 
+**Authoritative loading rules live in `SKILL.md` Step 5.** This list is a human-readable summary of when the checklist applies. If the two drift, SKILL.md wins.
+
 Load this checklist when the diff touches:
 - published entry points: `src/index.*`, `src/lib.*`, `lib/*.ts`, `pkg/*.go`, `__init__.py` in a published package
 - package manifests that declare the public surface: `package.json` (`main`, `module`, `exports`, `types`), `pyproject.toml`, `Cargo.toml`, `setup.py`

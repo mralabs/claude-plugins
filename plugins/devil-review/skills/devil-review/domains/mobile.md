@@ -1,5 +1,7 @@
 # Domain checklist — Mobile app
 
+**Authoritative loading rules live in `SKILL.md` Step 5.** This list is a human-readable summary of when the checklist applies. If the two drift, SKILL.md wins.
+
 Load this checklist when the diff touches:
 - **iOS native**: `.swift`, `.m`, `.mm`, `.h`, `*.xcodeproj/`, `Info.plist`, `Podfile`, `*.entitlements`
 - **Android native**: `.kt`, `.kotlin`, `.java` under `android/` or `app/`, `AndroidManifest.xml`, `build.gradle` (app module), `proguard-rules.pro`

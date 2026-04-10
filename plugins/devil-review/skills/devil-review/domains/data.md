@@ -1,5 +1,7 @@
 # Domain checklist — Data / persistence / migrations
 
+**Authoritative loading rules live in `SKILL.md` Step 5.** This list is a human-readable summary of when the checklist applies. If the two drift, SKILL.md wins.
+
 Load this checklist when the diff touches:
 - `.sql` files, especially under `migrations/`, `db/migrate/`, `prisma/migrations/`, `alembic/versions/`, `schema/`
 - ORM schema definitions: Prisma (`schema.prisma`), Drizzle (`schema.ts`), Ecto migrations (`priv/repo/migrations/`), SQLAlchemy models, TypeORM entities, Rails migrations (`db/migrate/`), Django migrations

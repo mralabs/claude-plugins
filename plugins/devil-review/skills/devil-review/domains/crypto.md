@@ -1,5 +1,7 @@
 # Domain checklist — Crypto / security-critical code
 
+**Authoritative loading rules live in `SKILL.md` Step 5.** This list is a human-readable summary of when the checklist applies. If the two drift, SKILL.md wins.
+
 Load this checklist when the diff touches:
 - anything that generates, stores, transmits, or verifies secrets: passwords, API keys, session tokens, JWTs, OAuth tokens, refresh tokens, TLS material
 - calls to cryptographic libraries: `crypto`, `subtle`, `libsodium`, `openssl`, `ring`, `cryptography`, `bcrypt`, `argon2`, `scrypt`, `pbkdf2`, `hashlib`, `secrets`
