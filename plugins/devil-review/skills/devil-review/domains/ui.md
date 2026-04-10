@@ -86,6 +86,45 @@ When the parent hides `containerRef` via JS (e.g., on tab switch), `NewButton` s
 
 ---
 
+## Transition leave window interactivity
+
+Vue `<Transition>`, React `<AnimatePresence>` (framer-motion), and Svelte `out:` transitions all keep the element in the DOM for the **full leave duration**. During that window:
+
+- The element is **still clickable** unless `pointer-events: none` is explicitly applied during leave
+- Opacity-based transitions fade *visibility* but not *interactivity*
+- If the element's click handler depends on reactive state that has already changed (e.g., `active` tab just switched, `visible` pane just hid, parent `v-if` just flipped), the click fires with **stale state** — the handler runs as if the element were still valid
+
+This is a silent class of bug: the user sees the element fading out, the element is 20% opaque, but a click in that 150ms window dispatches an action against the already-gone context. The reviewer looks at `v-if="active && condition"` and confirms it's gated correctly — missing that the gate is *temporally* bypassed by the transition.
+
+**Check**: For every element wrapped in a leave transition, ask — "if a user clicks this during the leave window, does the click handler still make sense given that the *reason it's leaving* has already happened?" If the answer is no, the fix is one of:
+
+1. **Apply `pointer-events: none` during leave** (the cleanest):
+   - Vue: `leave-active-class="pointer-events-none transition-opacity duration-150"`
+   - React (framer-motion): `style={{ pointerEvents: isExiting ? 'none' : 'auto' }}`
+   - Svelte: add a class during `out:` transition
+2. **Guard the click handler itself** against the stale condition (defensive but works)
+3. **Move the element inside a wrapper that's fully removed** (not just transitioned) when the gate flips — `v-if` on the wrapper, transition inside
+
+**Repro test**: set the leave duration to 2000ms temporarily. If you can click the element during that 2-second window and trigger a stale action, the bug is real.
+
+---
+
+## Visibility state source tree (trace before claiming a fix)
+
+When reviewing a change that gates an element's visibility (`v-if`, `v-show`, conditional render, CSS `display`, `opacity`, `visibility`, `pointer-events`), the **"obvious" guard on the element itself is rarely the full story**. Before accepting or recommending a visibility fix, trace the **complete state tree** that influences the element's interactivity:
+
+1. **Immediate parent visibility**: does the parent have its own `v-if` / `v-show` / conditional render? If yes, does the element inherit that gate, or does it have an independent one that can disagree?
+2. **Overlay / modal / popover painters**: is there anything in the app that can paint *on top* of this element (modals, toasts, tooltips, drawer overlays, loading shields)? Does the element's paint order / z-index / stacking context keep it below them?
+3. **Transition wrappers**: is the element inside a `<Transition>` / `<AnimatePresence>` / `out:` wrapper that delays removal? If yes, apply the transition leave window checks above.
+4. **State stores / composables / context providers**: which store or hook drives the `active` / `visible` / `selected` / `hidden` / `enabled` props that gate this element? Read that store — is it the single source of truth, or does another store also drive visibility-related state?
+5. **Sibling CSS rules**: is there a parent selector, media query, or sibling rule that can set `pointer-events`, `display`, or `visibility` from outside the component's own template? Check the nearest stylesheet and any global CSS.
+
+For each source, the element's interactivity must be **consistent**. If one source says "hidden" and another says "visible", there's a bug — often a race, stale state, or overlap the original author didn't anticipate.
+
+**Output integration**: if this section applies (the diff changes visibility gating), the Trace Log's `symbols_inspected` must include at least one entry from *each relevant source* above that exists. You cannot trace the component alone and call it done — you must have read the parent, the overlay, the transition wrapper, and the visibility-driving store. Missing any of these is the same as skipping the trace entirely.
+
+---
+
 ## Paint order & z-index
 
 - New `position: absolute | fixed | sticky` elements: what's the stacking context? Is there a `z-index` conflict with existing overlays (modals, toasts, tooltips)?

@@ -109,6 +109,12 @@ If you have more candidates after the final_check pass, drop the weakest until y
 
 In **PR mode**, do NOT re-read from disk. The reviewer's local HEAD is almost never the PR head commit — re-reading checks unrelated state and produces false positives or false negatives. Trust the diff captured via `gh pr diff` as the source of truth for what the PR contains.
 
+**Prefer state machine integration over additive guards.** When your recommendation starts looking like "add another check for X" on top of existing checks, **stop** and ask: "Is the state machine fragmented?" Multiple sites checking the same higher-level concept (active pane, logged-in user, feature flag, permission, visibility) is usually a signal that the source of truth is scattered across leaves instead of consolidated at the root. The better fix is often **consolidation** — a single `canInteract` prop drilled from the parent, a single `usePermission()` hook, a single middleware in the chain, a single state machine transition — not another guard added alongside existing ones.
+
+**Co-vary vs cross-cut heuristic**: if the conditions `A && B && C` that you're about to stack all reflect aspects of the **same higher-level state** (e.g., `activeTab && !tabTransitioning && !tabHiding` — all aspects of "is this tab currently interactive?"), recommend integrating with that state rather than duplicating its facets at the leaf. If the conditions are **genuinely orthogonal** (e.g., `isAuthenticated && !rateLimited && hasQuota` — auth, throttling, and quota are separate concerns), additive guards can be correct.
+
+**The test**: co-varying conditions move together under normal state transitions; cross-cutting conditions move independently. When in doubt, ask "if I fix the root state machine, do some of these guards become redundant?" If yes, it's fragmentation — recommend consolidation.
+
 ---
 
 ## Final check
