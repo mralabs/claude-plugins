@@ -3,21 +3,19 @@ name: devil-review
 description: "The devil is in the details — adversarial review that finds what's hiding in your diff"
 argument-hint: "[--scope auto|working-tree|branch|pr] [--base <ref>] [--pr <number>] [focus text]"
 disable-model-invocation: true
-allowed-tools: ["Read", "Glob", "Grep", "Bash(git:*)"]
+allowed-tools: ["Read", "Glob", "Grep", "Bash(git:*)", "Bash(gh:*)"]
 context: fork
-agent: Explore
 ---
 
-You are performing an adversarial software review.
-Your job is to break confidence in the change, not to validate it.
-Do not fix issues. Do not suggest you are about to make changes. Review only.
+You are performing an adversarial code review. Your job is to break confidence in the change, not to validate it. Do not fix issues. Review only.
 
-Raw slash-command arguments:
-`$ARGUMENTS`
+Raw slash-command arguments: `$ARGUMENTS`
+
+This file is the **orchestrator**. It parses arguments, collects the diff, and points you at the files that define the methodology and output format. Do not attempt to review the diff until you have loaded those files.
 
 ---
 
-## Step 1 — Parse Arguments
+## Step 1 — Parse arguments
 
 Parse the raw arguments:
 - `--scope <auto|working-tree|branch|pr>` — review target scope (default: `auto`)
@@ -27,60 +25,63 @@ Parse the raw arguments:
 
 ---
 
-## Step 2 — Resolve Review Target
+## Step 2 — Resolve review target
 
-1. If `--pr <number>` is given or `--scope pr` → **PR mode**
-2. If `--base <ref>` is given → **branch mode** against that ref
-3. If `--scope working-tree` → **working-tree mode**
-4. If `--scope branch` → **branch mode**, detect default branch:
+1. **Sanity check**: run `git rev-parse --is-inside-work-tree`. If it fails, emit the error output per `output-schema.md` with error code `not_a_repo` and stop.
+2. If `--pr <number>` is given or `--scope pr` → **PR mode**
+3. If `--base <ref>` is given → **branch mode** against that ref
+4. If `--scope working-tree` → **working-tree mode**
+5. If `--scope branch` → **branch mode**, detect default branch:
    - Try `git symbolic-ref refs/remotes/origin/HEAD`
    - Fall back to checking `main`, `master`, `trunk` (local then remote)
-5. If `--scope auto` (default):
-   - Run `git status --short` + `git diff --shortstat` + `git diff --cached --shortstat`
-   - If working tree is dirty (staged, unstaged, or untracked files) → **working-tree mode**
+6. If `--scope auto` (default):
+   - Run `git status --short`, `git diff --shortstat`, `git diff --cached --shortstat`
+   - If working tree is dirty (staged, unstaged, or untracked) → **working-tree mode**
    - If clean → **branch mode** against detected default branch
 
 ---
 
-## Step 3 — Collect Review Context
+## Step 3 — Collect review context
 
 ### PR mode
 
-Requires `gh` CLI. If `gh` is not available, error with: "PR mode requires the GitHub CLI (`gh`). Install it from https://cli.github.com or use `--scope branch` instead."
+Requires `gh` CLI. Run `gh --version` first. If it fails, emit the error output with error code `gh_missing` and stop. Do not fall back silently.
+
+Collect the PR metadata, diff, and **both comment streams** — inline review comments and PR discussion comments — because GitHub models a PR as both a pull and an issue:
 
 ```
-gh pr view <number> --json title,body,baseRefName,headRefName,commits,files
+gh pr view <number> --json title,body,baseRefName,headRefName,additions,deletions,commits,files
 gh pr diff <number>
+gh api repos/{owner}/{repo}/pulls/<number>/comments --jq '.[].body'
+gh api repos/{owner}/{repo}/issues/<number>/comments --jq '.[].body'
 ```
 
-Assemble as:
+The `{owner}` / `{repo}` placeholders in `gh api` are expanded automatically by `gh` when run inside a cloned repository with a GitHub remote. If the current directory is not such a repository, fall through to explicit resolution via `gh repo view --json nameWithOwner`.
+
+Assemble:
 ```
 ## PR Info
 Title: <title>
 Base: <baseRefName> ← <headRefName>
+Additions/Deletions: +<additions> -<deletions>
 Description: <body, first 500 chars>
 
 ## Changed Files
 <files list>
 
 ## PR Diff
-<full diff output>
+<full diff>
+
+## Existing Review Comments (inline)
+<inline comments from /pulls/N/comments, if any>
+
+## Existing PR Discussion (issue comments)
+<discussion comments from /issues/N/comments, if any>
 ```
 
-If the PR has review comments, also collect them:
-```
-gh api repos/{owner}/{repo}/pulls/<number>/comments --jq '.[].body'
-```
-
-Include as:
-```
-## Existing Review Comments
-<comments, if any — avoid duplicating findings already raised>
-```
+Skip either comments section if empty. The point of collecting both is to avoid duplicating findings already raised by humans — whether inline or in the discussion thread.
 
 ### Working-tree mode
-
-Run these git commands and collect output:
 
 ```
 git status --short
@@ -90,31 +91,7 @@ git ls-files --others --exclude-standard
 git log --oneline -10
 ```
 
-For each untracked file:
-- Skip binary files
-- Skip files larger than 24KB
-- Read and include the file content
-
-Assemble as:
-```
-## Git Status
-<output>
-
-## Recent Commits (context for what led to this diff)
-<output>
-
-## Staged Diff
-<output>
-
-## Unstaged Diff
-<output>
-
-## Untracked Files
-### <filename>
-\`\`\`
-<content>
-\`\`\`
-```
+For each untracked file: skip binary, skip >24KB, otherwise read and include content.
 
 ### Branch mode
 
@@ -125,169 +102,97 @@ git diff --stat <merge-base>..HEAD
 git diff --no-ext-diff --submodule=diff <merge-base>..HEAD
 ```
 
-Assemble as:
-```
-## Commit Log
-<output>
+If `git merge-base` fails (common in shallow clones / CI), emit the error output with error code `shallow_clone_no_base` and instruct: "Run `git fetch --unshallow` or use `--scope working-tree` / explicit `--base <ref>`."
 
-## Diff Stat
-<output>
+### Empty diff handling
 
-## Branch Diff
-<output>
-```
+If the resolved diff is empty (no staged, unstaged, untracked, or branch-divergent changes), emit the error output with error code `empty_diff` and verdict `null`. Do NOT return `approve` — an empty review is not an approval.
 
 ---
 
-## Step 3.5 — Large Diff Guard
+## Step 4 — Large diff guard
 
-After collecting the diff, estimate its size:
+Count total lines changed. **The counting method depends on the active mode** — do not use `git diff --stat` blindly; in PR mode it counts local working tree state unrelated to the PR.
 
-1. Run `git diff --stat` (or the equivalent for your mode) and count total lines changed
-2. If the diff exceeds **1500 lines changed**:
-   - Group changed files by directory or module
-   - Review each group separately, one at a time
-   - Maintain a running list of findings across groups
-   - In the final output, note: `Scope: split review (N files across M groups)`
-3. If a **single file** diff exceeds **800 lines**:
-   - Focus on the public API surface, error handling paths, and state mutations
-   - Note in the finding: `[partial-review]` — full file was too large for line-by-line analysis
-4. If the diff exceeds **5000 lines changed**:
-   - Warn the user upfront: "This diff is very large (N lines). Review will focus on high-risk areas. Consider splitting the change for deeper review."
-   - Prioritize files that touch: error handling, state management, concurrency, auth, and data persistence
-   - Skip test files and generated files unless they are the focus
+- **Working-tree mode**: total = lines from `git diff --stat` + `git diff --cached --stat` + total byte count of included untracked files.
+- **Branch mode**: total = lines from `git diff --stat <merge-base>..HEAD`.
+- **PR mode**: total = `additions + deletions` from the `gh pr view --json additions,deletions` call already made in Step 3. If that field is unavailable, fall back to counting lines of the captured `gh pr diff` output.
+
+Then apply the thresholds:
+
+- **> 1500 lines**: split review. Group files by directory/module, review each group, maintain a running list of findings. In output, note: `split review (N files across G groups)`.
+- **Single file > 800 lines**: focus on public API, error handling, state mutations. Mark affected findings `[partial-review]`.
+- **> 5000 lines**: warn upfront: "This diff is very large. Review will focus on high-risk areas. Consider splitting the change." Prioritize error handling, state management, concurrency, auth, data persistence. Skip test files and generated files unless they are the focus.
+
+The findings cap still applies per group (see `methodology.md`).
 
 ---
 
-## Step 4 — Review
+## Step 5 — Load methodology and domain checklists
 
-### Pre-review context (mandatory)
+**Read these files before reviewing the diff.** They are not optional. They define the review itself.
 
-Before analyzing the diff, you MUST read these files to avoid false positives:
+1. **`methodology.md`** (sibling file in this skill directory) — operating stance, attack surface, severity + block test, calibration rules, finding bar, grounding rules, final check. Load it now.
 
-1. **CLAUDE.md** — If present, read the "Architectural Decisions" section (or equivalent). These are intentional choices that must not be flagged as issues.
-2. **Active specs / RFCs** — Look for in-progress feature specs in common locations (e.g., `docs/`, `specs/`, `rfcs/`, `.claude/rfcs/`, task board files). If a finding matches a spec decision, mark it as `[spec-accepted]` severity instead of a bug. Skip this step if no spec files are found.
-3. **Changed function callers/callees** — For each function added or modified in the diff, grep for its name across the codebase to find callers. Read the calling code to understand the contract.
+2. **Pre-review context** (in this order, skip if absent):
+   - **CLAUDE.md** (repo root) — read the "Architectural Decisions" section or equivalent. These are intentional choices. Findings that contradict them must be marked `[spec-accepted]` or dropped.
+   - **Active specs / RFCs** — look in `docs/`, `specs/`, `rfcs/`, `.claude/rfcs/`, task board files. Same rule.
 
-If any of these reads reveal that a potential finding is intentional or already addressed, drop it before including it in the output.
+3. **Domain checklists** — classify the changed files and load every matching checklist. A single diff can match more than one domain (e.g., a React Native component touches both UI and mobile; an Electron renderer touches both UI and desktop; a backend handler that writes SQL touches both API and data). Load all that apply.
 
-### Review methodology
+   | Domain | File / marker | Checklist |
+   |---|---|---|
+   | **Web UI / view layer** | `.vue`, `.tsx`, `.jsx`, `.svelte`, `.html`, layout CSS files (files with `display:`, `position:`, `z-index:`, `grid`, `flex`) | `domains/ui.md` |
+   | **Mobile app** | iOS: `.swift`, `.m`, `.mm`, `.h`, `*.xcodeproj/`, `Info.plist`, `Podfile`, `.entitlements`. Android: `.kt`, `.kotlin`, `.java` under `android/`/`app/`, `AndroidManifest.xml`, `build.gradle`. React Native: any `.tsx`/`.jsx` in a project whose `package.json` depends on `react-native`. Flutter: `.dart`, `pubspec.yaml`, platform channels. Capacitor/Cordova: `capacitor.config.*`, `config.xml`, plugin code | `domains/mobile.md` |
+   | **Desktop app** | Electron: `main.ts/.js`, `preload.ts/.js`, references to `BrowserWindow`/`ipcMain`/`ipcRenderer`/`app.on`. Tauri: anything under `src-tauri/`, `tauri.conf.json`, `#[tauri::command]`. Native: macOS Cocoa/AppKit `.swift`/`.m` outside `ios/`; Windows Win32/WinUI `.cs`/`.cpp` with MFC/WPF/WinRT; Linux Gtk/Qt sources. Packaging: `electron-builder.yml`, `forge.config.*`, `.wxs`, `.iss`, notarization scripts | `domains/desktop.md` |
+   | **Backend API / server** | route handlers, controllers, middleware; request/response DTOs; schema files `openapi.*`, `.proto`, GraphQL SDL; framework signals: Express/Koa/Fastify/NestJS route files, Rails `app/controllers/`, Django `views.py`/`urls.py`, FastAPI route files, ASP.NET `*Controller.cs`, Spring `@RestController`; directory hints: `routes/`, `controllers/`, `handlers/`, `api/`, `rpc/`, `endpoints/` | `domains/api.md` |
+   | **Library / SDK** | changes to `package.json` `main`/`module`/`exports`/`types`; `src/index.*`, `src/lib.*`, `lib/*`; `Cargo.toml` with `[lib]`; `pyproject.toml` / `setup.py` in a published package; `.d.ts` / `.pyi` declaration files; any file whose project publishes to a registry (npm, PyPI, crates.io, Maven, NuGet) | `domains/library.md` |
+   | **Data / persistence / migrations** | `.sql` files; migration directories: `migrations/`, `db/migrate/`, `prisma/migrations/`, `alembic/versions/`, `schema/`; ORM schemas: `schema.prisma`, Drizzle `schema.ts`, Ecto migrations, SQLAlchemy models, TypeORM entities, Rails migrations, Django migrations; stored procedures, triggers, views; cache key shapes; queue payload schemas | `domains/data.md` |
+   | **CLI tool** | `bin/`, `cmd/` entry points; files with `#!/usr/bin/env` shebangs; `main()` in a project whose manifest declares a binary/script target (`package.json` `bin` field, `Cargo.toml` `[[bin]]`, `pyproject.toml` `[project.scripts]`); argument parsing libraries (`commander`, `yargs`, `clap`, `argparse`, `cobra`, `click`); signal handling, subprocess spawning, TTY detection | `domains/cli.md` |
+   | **Crypto / security-critical** | calls to cryptographic libraries (`crypto`, `subtle`, `libsodium`, `openssl`, `ring`, `cryptography`, `bcrypt`, `argon2`, `scrypt`, `hashlib`, `secrets`); JWT / token signing & verification; password hashing; key generation, derivation, storage, rotation; nonce / IV / salt handling; TLS / certificate verification; session management; webhook signature verification; authentication and authorization flows | `domains/crypto.md` |
 
-Apply the following adversarial review methodology to the collected context.
+   Match conservatively but inclusively — if a file *might* belong to a domain, load the checklist. The cost of loading an extra checklist is a few KB of context; the cost of missing one is a shipped bug.
 
-<operating_stance>
-Default to skepticism.
-Assume the change can fail in subtle, high-cost, or user-visible ways until the evidence says otherwise.
-Do not give credit for good intent, partial fixes, or likely follow-up work.
-If something only works on the happy path, treat that as a real weakness.
-</operating_stance>
+   **Classification must be recorded.** Fill in `trace_log.domains_loaded` with every domain you loaded, `trace_log.domains_considered_dropped` with any domain you considered but decided not to load (with a one-word reason), and `trace_log.classification_notes` with a one-sentence explanation of any ambiguous call (e.g., "`.tsx` file — loaded ui.md but not mobile.md because package.json does not depend on react-native"). See `output-schema.md`.
 
-<attack_surface>
-Prioritize the kinds of failures that are expensive, dangerous, or hard to detect:
+   If **no** domain matches, set `domains_loaded: []` and add a scenario `"generic attack surface only — no domain matched"`. Proceed with only the generic attack surface from `methodology.md`.
 
-- auth, permissions, tenant isolation, and trust boundaries
-- data loss, corruption, duplication, and irreversible state changes
-- rollback safety, retries, partial failure, and idempotency gaps
-- race conditions, ordering assumptions, stale state, and re-entrancy
-- empty-state, null, timeout, and degraded dependency behavior
-- version skew, schema drift, migration hazards, and compatibility regressions
-- observability gaps that would hide failure or make recovery harder
-- cross-platform assumptions (path separators, shell semantics, OS-specific APIs)
-- process lifecycle (leak, orphan, PID reuse, cleanup)
-- concurrency (mutex ordering, file watcher races, atomic write correctness)
-</attack_surface>
+   Future domains live alongside (e.g., `domains/iac.md`, `domains/graphql.md`) — when added, extend this table.
 
-<review_method>
-Actively try to disprove the change.
-Look for violated invariants, missing guards, unhandled failure paths, and assumptions that stop being true under stress.
-Trace how bad inputs, retries, concurrent actions, or partially completed operations move through the code.
-If the user supplied a focus area, weight it heavily, but still report any other material issue you can defend.
-Cross-reference with CLAUDE.md architectural decisions — if the change violates a documented invariant, flag it.
-
-**Cross-file call chain tracing**: For each changed function, trace its callers and callees across files. Read the surrounding code, not just the diff. The most dangerous bugs live at call boundaries — where a function's assumptions about its caller or callee are violated by the change. Example: if `save_config()` calls `ensure_board_initialized()`, read both to check if the initialization contract still holds after the change.
-</review_method>
-
-<severity_definitions>
-- **critical** — data loss, security breach, crash, or corruption that affects all users. Ship-blocking.
-- **high** — incorrect behavior under realistic conditions (not just theoretical). Likely to cause user-visible bugs or silent data issues.
-- **medium** — edge case failure, degraded behavior under stress, or a missing guard that could escalate if the surrounding code changes.
-- **low** — minor robustness gap or latent risk. Unlikely to bite today but worth noting.
-</severity_definitions>
-
-<finding_bar>
-Report only material findings.
-Do not include style feedback, naming feedback, low-value cleanup, or speculative concerns without evidence.
-A finding should answer:
-1. What can go wrong?
-2. Why is this code path vulnerable?
-3. What is the likely impact?
-4. What concrete change would reduce the risk?
-</finding_bar>
-
-<grounding_rules>
-Be aggressive, but stay grounded.
-Every finding must be defensible from the provided repository context.
-Do not invent files, lines, code paths, incidents, attack chains, or runtime behavior you cannot support.
-If a conclusion depends on an inference, state that explicitly in the finding body and keep the confidence honest.
-</grounding_rules>
-
-<calibration_rules>
-Prefer one strong finding over several weak ones.
-Do not dilute serious issues with filler.
-If the change looks safe, say so directly and return no findings.
-Before reporting a finding, READ the actual code at the location (not just the diff). If the issue has already been fixed in the current working tree, do not report it. The diff shows what changed, but the file on disk shows the current state — trust the file.
-</calibration_rules>
-
-<final_check>
-Before finalizing, check that each finding is:
-- adversarial rather than stylistic
-- tied to a concrete code location
-- plausible under a real failure scenario
-- actionable for an engineer fixing the issue
-- NOT already fixed in the current file on disk (re-read the file to confirm)
-- NOT an intentional design decision documented in the task spec or CLAUDE.md architectural decisions
-Drop any finding that fails these checks.
-</final_check>
+4. **Changed symbols & consumers tracing** — for every added or modified symbol in the diff, grep for its usage and read the calling sites. The methodology file defines what counts as a "symbol" and what to trace. Every symbol you inspect must appear in the Trace Log in the final output.
 
 ---
 
-## Step 5 — Output
+## Step 6 — Review
 
-Return your review in this exact format:
+Apply the methodology from `methodology.md` plus any loaded domain checklists to the collected diff. Keep the calibration rules in mind continuously — every finding you consider keeping must pass the ship-blocker question and the block test before it earns a slot under the hard cap.
 
-```
-# Devil Review
+### Focus text routing
 
-Target: <"working tree diff" or "branch diff against <ref>">
-Scope: <N files, M lines changed> [or "split review (N files across M groups)" if large]
-Verdict: <approve | needs-attention>
+If `FOCUS_TEXT` parsed in Step 1 is non-empty:
 
-<1-2 sentence ship/no-ship assessment — terse, not neutral>
+1. Treat it as an explicit weighting on the attack surface. Findings that match the focus area are prioritized over unrelated findings of equal severity when applying the hard cap.
+2. Include `FOCUS_TEXT` verbatim in the `focus` field of the output (both markdown and JSON).
+3. Record at least one scenario under `scenarios_considered` that directly targets the focus area, prefixed as `focus: <text>`.
+4. If after applying the methodology you find **no** material issue in the focus area, say so explicitly in the summary — "focus area (<text>) reviewed, no material findings" — rather than staying silent. The user asked; answer.
 
-## Findings
+If `FOCUS_TEXT` is empty, set `focus` to `null` in the JSON and omit the markdown `Focus:` line.
 
-### [severity] Title
-- **File**: `path/to/file`
-- **Lines**: L<start>-L<end>
-- **Confidence**: <0.0 to 1.0>
+### Pre-output checklist
 
-<body — what can go wrong, why this code path is vulnerable, likely impact>
-
-**Recommendation**: <concrete change to reduce risk>
+Do not start writing output until you have:
+- answered the ship-blocker question (the answer goes into the Trace Log — see `output-schema.md`)
+- traced consumers for every changed symbol
+- routed `FOCUS_TEXT` if present
+- applied the final_check to every candidate finding
+- dropped weak findings to fit the hard cap
 
 ---
 
-(repeat for each finding, sorted by severity: critical > high > medium > low)
+## Step 7 — Emit output
 
-If no material findings: "No material findings. The change looks safe to ship."
+Read **`output-schema.md`** (sibling file in this skill directory) and produce output in **exactly** the format it specifies: markdown section followed by a JSON fence. Both parts are mandatory on every non-error run.
 
-## Next Steps
+The Trace Log is non-negotiable. If you reported findings without a populated trace log, you skipped the grounding step — go back, trace, and try again.
 
-- <actionable next step>
-- ...
-```
-
-If user provided FOCUS_TEXT, include it after the target line:
-```
-Focus: <user's focus text>
-```
+If the review cannot run (not a repo, `gh` missing, empty diff, shallow clone without base), emit the error output format from `output-schema.md` instead. Do not fabricate a review.
