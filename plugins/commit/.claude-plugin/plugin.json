@@ -1,0 +1,9 @@
+{
+  "name": "commit",
+  "version": "0.1.0",
+  "description": "Conventional commit plugin — delegates message generation to a Haiku subagent for cost-efficient, format-enforced git commits.",
+  "author": {
+    "name": "mralabs",
+    "url": "https://github.com/mralabs"
+  }
+}

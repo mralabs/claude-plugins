@@ -31,6 +31,20 @@ Adversarial code review that finds the subtle bugs, race conditions, and violate
 
 [Full documentation](plugins/devil-review/)
 
+### commit
+
+> *Fast conventional commits via Haiku delegation.*
+
+Delegates commit message generation to a dedicated Haiku subagent running in a forked context, so the main conversation stays clean and the token cost stays low. Enforces Angular 11 conventional commit types, respects repo-specific commit formats defined in `CLAUDE.md`, and refuses to commit files that look like secrets.
+
+```bash
+/commit                    # long form
+/cc                        # short alias — same behavior
+/cc fix typo in readme     # optional hint — subagent still decides from diff
+```
+
+[Full documentation](plugins/commit/)
+
 ## License
 
 MIT
