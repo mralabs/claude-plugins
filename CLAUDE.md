@@ -62,6 +62,36 @@ Checklist:
 
 The pre-commit hook will verify the two plugin manifests match before allowing the commit.
 
+## Model selection per skill
+
+Each skill's `SKILL.md` frontmatter can specify a `model` field that overrides the user's session model. The decision depends on the skill's quality vs. cost profile — pick one of three patterns when adding a new plugin:
+
+**Pattern 1 — Inherit session (default, recommended for most plugins)**
+
+Omit the `model` field entirely. The skill runs on whatever model the user has selected for their session — Opus, Sonnet, or Haiku. This satisfies the implicit user contract "I'm paying for Opus this session, I want Opus everywhere I go". Use this when the skill's value scales with reasoning quality and the user's session-level model choice is the right signal of how much reasoning they want spent.
+
+Examples: adversarial review, deep refactoring, careful planning, security audits, root-cause investigation. **`devil-review` follows this pattern** — no `model` field in its `SKILL.md`, runs on whatever the user is using.
+
+**Pattern 2 — Force a cheap model (recommended for mechanical / repetitive skills)**
+
+Set `model: haiku` (or `model: sonnet` if a little more reasoning is genuinely needed). This forces a cheap model regardless of session, because:
+
+- The task doesn't benefit meaningfully from Opus-level reasoning.
+- The skill is invoked frequently, so per-invocation cost compounds.
+- The user explicitly chose Opus for *other* work, not for this mechanical step — paying Opus prices for Haiku-quality output is waste.
+
+Examples: commit message generation, lint check, format normalization, simple lookups, status reports, file rename suggestions, changelog drafting from a diff. **A future `commit` plugin that drafts commit messages should use `model: haiku`** — message generation is mechanical, Haiku is sufficient, and the user invokes commits often enough that the cost matters.
+
+**Pattern 3 — Force Opus regardless of session (rare, use sparingly)**
+
+Set `model: opus` to force Opus even when the user is in Sonnet. Reserve for skills where session-model fallback would silently degrade quality in ways the user would not notice — typically deep audits where missing a subtle bug is more expensive than the extra Opus tokens.
+
+Use this pattern only when you can articulate a concrete failure mode that Sonnet would miss. "Quality is important" is not enough — Pattern 1 already gives quality when the user is in Opus. Pattern 3 is for when you don't trust the user's session choice for *this specific skill*.
+
+Examples (rare): cryptographic key generation review, irreversible data migration audit, production deploy plan review.
+
+**Picking when in doubt**: default to Pattern 1. Override only when you can name a specific reason — predictable cost ceiling (Pattern 2) or quality floor that Sonnet would breach (Pattern 3).
+
 ## Self-review discipline
 
 When making non-trivial changes to methodology, schemas, or domain checklists:
