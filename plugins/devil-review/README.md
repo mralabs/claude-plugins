@@ -36,12 +36,17 @@ Every diff has dark corners — the edge case nobody tested, the race condition 
 1. **Resolves target** — auto-detects working tree vs branch diff, or takes explicit scope
 2. **Collects context** — gathers diffs, status, commit history, untracked files, PR metadata
 3. **Loads methodology** — reads `methodology.md` for review philosophy and calibration rules
-4. **Loads domain checklists** — classifies changed files and loads matching checklists from `domains/` (UI, mobile, desktop, backend API, library/SDK, data/persistence). Multiple domains load together when a diff spans them (e.g., React Native feature loads both UI and mobile; backend handler with SQL migration loads both API and data)
+4. **Loads domain checklists** — classifies changed files and loads matching checklists from `domains/` (UI, mobile, desktop, backend API, library/SDK, data/persistence, CLI, crypto). Multiple domains load together when a diff spans them (e.g., React Native feature loads both UI and mobile; backend handler with SQL migration loads both API and data)
 5. **Reads project rules** — checks CLAUDE.md and active specs to avoid false positives on intentional decisions
-6. **Traces consumers** — for every changed symbol (function, component, type, schema, config key), reads the call sites
-7. **Adversarial review** — applies skeptical methodology, focused on high-cost failures
-8. **Answers ship-blocker question** — decides whether a single issue justifies blocking the PR
-9. **Emits structured output** — markdown for humans + JSON fence for downstream tools
+6. **Traces symbols & consumers** — for every changed symbol (function, component, type, schema, config key), reads the call sites
+7. **Audits unchanged callees against new callers** — when the diff introduces a new caller chain reaching unchanged code, checks whether the callee's existing failure handling (auto-clear, auto-retry, default fallbacks, error suppression) is compatible with the new caller's semantic mode
+8. **Traces mutated record fanout** — for every record whose fields are written, enumerates sibling fields and checks each for stale references, lifecycle leakage, or silently broken invariants
+9. **Audits preserved siblings against new reader paths** — for siblings the diff preserves, checks whether the diff opens a new writer→reader code path that breaks an implicit invariant the unchanged reader assumed
+10. **Verifies cross-boundary runtime contracts** — for IPC, API, DB, queue, FFI, and other boundaries where compile-time types do not bind runtime format, reads the producer in its native source rather than trusting consumer-side type signatures
+11. **Adversarial review** — applies skeptical methodology, focused on high-cost failures
+12. **Test-traces every finding** — for each finding, answers "why didn't existing tests catch this?" with one of `no-test`, `mock-bypass`, or `missing-assertion`. Findings without a defensible test-trace answer are dropped as false positives
+13. **Answers ship-blocker question** — decides whether a single issue justifies blocking the PR
+14. **Emits structured output** — markdown for humans + JSON fence for downstream tools
 
 ## Verdict semantics
 
@@ -62,6 +67,16 @@ The **ship-blocker question** — "Is there a single issue that would make me re
 - Cross-platform assumptions (paths, shell semantics, OS APIs)
 - Process lifecycle issues (leaks, orphans, PID reuse)
 - Concurrency bugs (mutex ordering, file watcher races)
+- **Persistence and durability of bad state** — wrong values that survive serialization, cache, or reload, where the bug is invisible in the current process but persists across restart
+
+**Cross-cutting grounding disciplines** (mandatory audits applied alongside the attack surface, not optional):
+- **Mutated record fanout** — for every record the diff writes, sibling fields are enumerated and checked for stale references, lifecycle leakage, and silently broken invariants. Catches the planFilePath / wrong-cwd / stale-error class of bugs where one field is updated correctly but its siblings now point at the prior owning entity.
+- **Reader-path fanout** — for siblings the diff preserves, the audit asks whether the diff opens a new writer→reader code path that reaches an existing reader and breaks an invariant neither side sees. Catches bugs where the field is correctly preserved but a new caller chain (restart, remount, restore-from-persistence, explicit-user-intent reaching implicit-reopen code) makes the unchanged reader wrong.
+- **Failure-mode audit on unchanged callees with new callers** — when the diff adds a new caller of an unchanged function, lifecycle, or handler, the callee's existing failure handling (auto-clear, auto-retry, default fallback, error suppression) is checked against the new caller's semantic mode. Catches "auto-recovery written for caller A's semantics is silently wrong for caller B's semantics".
+- **Runtime contract verification at boundaries** — IPC, API, DB row, queue payload, FFI, env vars, config files, browser persistence, file formats. The producer is read in its native source rather than trusting consumer-side type signatures. Catches createdAt epoch-vs-ISO drift, NUMERIC precision loss, JWT claim format mismatches, native bridge serialization gotchas.
+- **Test-trace per finding** — every reported finding must answer "why didn't existing tests catch this?" with `no-test`, `mock-bypass`, or `missing-assertion`. Findings without a defensible answer are dropped. Catches mocked tests that exercise only the consumer's mental model of the contract, not the producer.
+- **Generalization test** — every finding is reframed at the root invariant before reporting. Narrow framings ("crashed-tab edge case") are widened to the underlying invariant ("any session switch with a live process") so the fix matches the actual blast radius rather than the most extreme example.
+- **Prior-reviewer stance** — recommendations from earlier reviews (previous devil-review runs, codex review, PR comments) are reviewable artifacts, not architectural decisions. A change made in response to earlier feedback gets *more* scrutiny, not less, because over-correction is the default failure mode when targeting a narrow critique.
 
 **Domain-specific checklists** — loaded automatically based on what files the diff touches. A single review can load several:
 
@@ -102,8 +117,19 @@ Verdict: <block | needs-attention | approve>
 Ship-blocker question: <yes | no>
 Reasoning: <one sentence>
 
+Domain classification:
+- Loaded: <comma-separated list of domains>
+- Considered but dropped: <list with one-word reason>
+- Notes: <one sentence on classification calls>
+
 Changed symbols inspected:
 - `<symbol>` (<kind>) → consumers: <path/to/caller>:<line>, ...
+  - failure-mode audit: <callee at file:line — existing failure mode — compatible with new caller: yes|no — rationale>
+  - failure-mode audit: no new caller chains introduced
+
+Mutated records inspected:
+- `<record>` (<kind>) → siblings: <field1>, <field2>, ...
+  - new reader path: <preserved field reached by new writer path via reader at file:line — invariant no longer holds>
 
 Architectural decisions checked:
 - <CLAUDE.md section ref, or "n/a">
@@ -111,6 +137,9 @@ Architectural decisions checked:
 Scenarios considered:
 - <one-line adversarial scenario>
 - ...
+
+Considered but not promoted:
+- <observation> — reason: <out-of-scope | low-confidence | covered-by-finding-N | spec-accepted | test-covers-invariant>
 
 ## Findings
 
@@ -122,9 +151,11 @@ Scenarios considered:
 <what can go wrong, why this code path is vulnerable, likely impact>
 
 **Recommendation**: <concrete change to reduce risk>
+
+**Test coverage**: <one of `no-test:`, `mock-bypass:`, or `missing-assertion:` followed by a one-sentence explanation>
 ```
 
-Followed by a JSON fence carrying the same data in a structured form for downstream tools (see `skills/devil-review/output-schema.md` for the full contract).
+Followed by a JSON fence carrying the same data in a structured form for downstream tools (current schema version: **1.4**, see `skills/devil-review/output-schema.md` for the full contract). The schema is additive across patch and minor versions — older consumers parse newer payloads without error, but new nested fields (`failure_modes_considered`, `new_reader_paths`, `test_coverage`, `considered_not_promoted`) are only visible to consumers that bump to the matching schema version.
 
 ## File layout
 
