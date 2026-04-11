@@ -78,15 +78,22 @@ Record your findings in the Trace Log field `mutated_records_inspected` — one 
 
 ### Runtime contract verification (cross-boundary types)
 
-Type signatures describe shape at compile time. They do **not** describe the runtime format of data that crosses a trust or language boundary. For every type in the diff that crosses one of:
+Type signatures describe shape at compile time. They do **not** describe the runtime format of data that crosses a trust or language boundary. The list below enumerates the common boundaries — **it is non-exhaustive**. The underlying invariant is: *any point where compile-time types do not bind the runtime format is a contract boundary*. If you're unsure whether a boundary qualifies, apply the one-sentence test: *"could the producer be replaced with a different implementation that writes a different-but-type-compatible format without a type error?"* If yes, it's a contract boundary.
+
+Common cases:
 
 - **IPC** (Electron main↔renderer, Tauri commands, postMessage, shared memory)
 - **API response** (REST/GraphQL/gRPC/WebSocket payloads deserialized into typed objects)
 - **Database row** (ORM result → typed model)
 - **Queue/message payload** (job args, event bus messages, pub/sub)
 - **Cross-language FFI** (Rust↔TS, Python↔C, Swift bridging)
+- **Environment variables and CLI args** (parsed as typed strings; `NODE_ENV: string` is not a discriminated union)
+- **Configuration files** (YAML/TOML/JSON parsed into typed objects; the file schema is the producer, not the consumer type)
+- **Browser persistence** (localStorage, IndexedDB, cookies — the previous session's write is the producer)
+- **File formats** (anything serialized to disk and read back — the writer version may predate the reader schema)
+- **WebAssembly imports/exports, GPU buffers, shared memory segments** (native binary formats with no type enforcement at the boundary)
 
-...do **not** trust the consumer-side type signature alone. Read the **producer** of the payload in its native source — the Rust handler, the API writer, the migration that defined the column, the job enqueuer — and verify the runtime shape matches the consumer's assumption. A field typed `createdAt: string` may be written as ISO 8601, RFC 2822, epoch-millis, or epoch-seconds — the type tells you nothing about which, and tests written against the consumer's mental model will pass while production fails.
+...do **not** trust the consumer-side type signature alone. Read the **producer** of the payload in its native source — the Rust handler, the API writer, the migration that defined the column, the job enqueuer, the config file the ops team maintains — and verify the runtime shape matches the consumer's assumption. A field typed `createdAt: string` may be written as ISO 8601, RFC 2822, epoch-millis, or epoch-seconds — the type tells you nothing about which, and tests written against the consumer's mental model will pass while production fails.
 
 **Tests-as-proof does not count.** If the test file mocks the payload using the consumer's assumption, the test is tautological — it proves only that the consumer agrees with itself. Real verification requires reading the producer. A test that mocks `createdAt: "2026-04-01"` has never exercised an epoch-millis producer. Treat such tests as *absent* coverage for the contract boundary.
 
@@ -192,6 +199,8 @@ The answer must start with one of the three literal codes below, followed by `: 
 **If you cannot produce one of these three answers, your finding is either wrong or you did not read the test files.** Drop the finding or re-trace with the tests actually in hand. This is a validation gate, not paperwork: if a test truly covers the invariant you claim is violated, the finding is a false positive and belongs in `considered_not_promoted` with reason `test-covers-invariant`.
 
 **Mocked tests do not count as coverage for contract-boundary bugs.** A test that mocks the exact value the bug produces is tautological — it proves only that the consumer agrees with itself. See the runtime contract verification step.
+
+**Non-code diffs (docs, markdown, CSS-only, config-only, CHANGELOG edits).** Findings in files that are not covered by any test framework in this repository (documentation, static configuration, markdown, lockfiles) should almost never pass the adversarial framing at the ship-blocker question — a typo or phrasing choice in a README is not a ship-blocker. If a finding in a non-code file *does* pass ship-blocker (e.g., a CLAUDE.md architectural decision that contradicts itself, a CI config that will break the pipeline), use `test_coverage: {covered_by: null, why_missed: "no-test: non-code file, no test framework applicable"}`. This is the only case where "no-test" is self-justifying rather than a coverage gap. Do not use this escape hatch for diffs that *look* docs-heavy but touch code (e.g., a commit that edits both a README and a source file) — the source-file findings still need a real test-trace answer.
 
 Record the answer in the finding's `test_coverage` field per `output-schema.md`. The field is mandatory on every reported finding.
 
