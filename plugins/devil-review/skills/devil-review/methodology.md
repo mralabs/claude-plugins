@@ -26,8 +26,11 @@ Prioritize failure classes that are expensive, dangerous, or hard to detect acro
 - cross-platform assumptions (path separators, shell semantics, OS-specific APIs)
 - process lifecycle (leak, orphan, PID reuse, cleanup)
 - concurrency (mutex ordering, file watcher races, atomic write correctness)
+- persistence / durability of bad state (wrong values that survive serialization, cache, or reload)
 
 This list is intentionally project-type-agnostic. **Domain-specific failure modes live in the checklists under `domains/`** — the orchestrator loads the matching ones based on the files the diff touches (web UI, mobile, desktop, backend API, library/SDK, data/persistence). Do not restate domain concerns here; rely on the checklists instead.
+
+**One-restart-ahead rule (persistence axis).** Reviewers mentally simulate only the current process by default, and that is where persistence bugs hide. For every suspect state mutation, force one extra simulation step: *if this value is written to store/disk/cache and reloaded on next launch, does the bug survive or get worse?* A wrong value that persists across restart is more dangerous than a crash — it erodes trust silently and is hard to reproduce. This class of bug does not look like "data loss"; it looks like *correct-shaped-but-wrong* state that the next process treats as trustworthy.
 
 ---
 
@@ -115,6 +118,14 @@ In **PR mode**, do NOT re-read from disk. The reviewer's local HEAD is almost ne
 
 **The test**: co-varying conditions move together under normal state transitions; cross-cutting conditions move independently. When in doubt, ask "if I fix the root state machine, do some of these guards become redundant?" If yes, it's fragmentation — recommend consolidation.
 
+**Generalization test (apply to every finding before writing it up).** Before finalizing a finding, challenge your own framing: *"Am I describing the most extreme example of this bug, or the underlying invariant that's violated?"* The dangerous failure mode is reporting a symptom on a narrow code path (e.g., "crashed tab case") when the real defect is a broken invariant that triggers on the common path too (e.g., "any session switch with a live process"). The narrow framing understates severity, hides the blast radius, and makes the fix look smaller than it is.
+
+**How to widen the frame**: take the preconditions in your current scenario and ask which ones are *load-bearing*. If you can drop a precondition and the bug still fires, the dropped precondition was incidental — rewrite the finding around the remaining minimal set. Iterate until every precondition is essential. The finding you end up with is the root invariant; the original scenario is just one instance of it. Report the root.
+
+**When the narrow framing is correct**: if dropping any precondition genuinely makes the bug disappear, your original frame *was* the invariant — keep it, but note in the body that you checked for generalization.
+
+**The test corrects framing, not severity.** Widening the frame is about accurately describing the invariant, not earning more severity points. A correctly widened finding may still be `low` — some invariants are broken but the blast radius stays small. After widening, re-run the block test on the new finding from scratch rather than carrying severity over from the narrow version. The severity-inflation guard in `output-schema.md` still applies: if your ship-blocker answer is `yes` but no individual finding scores critical or high on the honest severity definitions, the problem is the verdict, not the finding.
+
 ---
 
 ## Final check
@@ -124,6 +135,7 @@ Before finalizing, verify each finding is:
 - tied to a concrete code location (file + line range)
 - plausible under a realistic failure scenario (not purely theoretical)
 - actionable for an engineer fixing the issue
+- framed at the **root invariant**, not a narrow symptomatic instance (apply the generalization test from calibration rules)
 - NOT already fixed in the current file on disk (re-read to confirm)
 - NOT an intentional decision documented in CLAUDE.md or an active spec
 

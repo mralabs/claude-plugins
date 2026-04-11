@@ -39,6 +39,10 @@ Scenarios considered:
 - <another scenario>
 - ...
 
+Considered but not promoted:
+- <observation> — reason: <out-of-scope | low-confidence | covered-by-finding-<N> | spec-accepted>
+- ...
+
 ## Findings
 
 ### [severity] Title
@@ -72,6 +76,7 @@ If no material findings: "No material findings. The change looks safe to ship."
 - **Deletions count as changes.** If the diff removes a symbol, trace its former callers and list them in `symbols_inspected` with a `(deleted)` suffix on the symbol name.
 - **One line per symbol, one line per scenario.** Do not prose-explain; the JSON block carries structured data for chain-consumers.
 - If a domain checklist was loaded (e.g., `domains/ui.md`), list the domain under "Scenarios considered" as `domain: <name>` alongside concrete scenarios.
+- **`considered_not_promoted` captures observations you noticed but decided not to report.** Use it when you see something during the trace — a smell, a secondary symptom, a speculative risk — that did not clear the finding bar. Each entry is one line with a reason from the fixed set: `out-of-scope`, `low-confidence`, `covered-by-finding-<N>` (where `<N>` is the 1-based index of the covering finding in the `findings` array — e.g. `covered-by-finding-2`), or `spec-accepted`. The field is optional: empty list `[]` is valid, and you should not pad it to look thorough. Its purpose is the opposite — it exists so the reviewer can see *what you thought about and dropped*, so those observations are not silently lost and can be promoted manually if the user disagrees with your triage. If you used it to drop an observation because it was "just a symptom", check that the underlying invariant did not also escape your main findings list — see the generalization test in `methodology.md`.
 
 ---
 
@@ -82,10 +87,11 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 **Schema version history:**
 - `1.0` — initial schema: verdict, target, scope, findings, trace_log with symbols_inspected + scenarios_considered
 - `1.1` — added `ship_blocker_answer`, `ship_blocker_reasoning`, `domains_loaded`, `domains_considered_dropped`, `classification_notes`. New `block` verdict value. No fields removed or retyped.
+- `1.2` — added optional `trace_log.considered_not_promoted` for observations the reviewer saw but dropped from findings (with reason). No fields removed or retyped; older consumers that do not know the field can ignore it.
 
 ```json
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "verdict": "block | needs-attention | approve",
   "target": {
     "mode": "working-tree | branch | pr",
@@ -118,6 +124,12 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
     "scenarios_considered": [
       "<one-line adversarial scenario>",
       "..."
+    ],
+    "considered_not_promoted": [
+      {
+        "observation": "<one-line description of what you noticed>",
+        "reason": "out-of-scope | low-confidence | covered-by-finding-<N> | spec-accepted"
+      }
     ]
   },
   "findings": [
@@ -145,6 +157,7 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - **`trace_log.domains_considered_dropped`** is required on every non-error run. Empty array `[]` is valid if no candidate domain was dropped. Every dropped entry needs `{domain, reason}` where reason is one of `not-matched`, `overlap`, `not-applicable`.
 - **`trace_log.classification_notes`** is **unconditionally required** on every non-error run. A single non-empty sentence explaining how classification was decided — even trivial cases ("all files under `src/components/*.vue` — straightforward ui.md load" is fine). `null` and empty strings are invalid. The field forces deliberate thought about routing; it is not an optional "notes" slot.
 - **`trace_log.symbols_inspected`** cannot be empty if `findings` is non-empty. If it is, you are reporting findings without grounding — drop them or redo the trace.
+- **`trace_log.considered_not_promoted`** is optional — empty array `[]` is valid and preferred over padding. Each entry requires both `observation` (one sentence) and `reason`. `reason` must be one of the literal strings `out-of-scope`, `low-confidence`, `spec-accepted`, or the pattern `covered-by-finding-<N>` where `<N>` is the 1-based index of the covering finding in the `findings` array (e.g. `covered-by-finding-1` for the first finding). If the covering finding is dropped or reordered later, update the index. Do not use this field to smuggle in extra findings — if an observation deserves action, promote it to `findings` and let it earn its slot under the hard cap.
 - **`findings` length must respect the hard cap** from `methodology.md` (3 under 500 lines, 5 under 1500, 3 per split group).
 - **`confidence`** is 0.0–1.0. Use it for your own uncertainty — do not soften severity to compensate for low confidence.
 - **Verdict consistency**: `block` requires at least one `critical` or `high` finding AND `ship_blocker_answer == "yes"`. `approve` requires zero findings. `needs-attention` is everything in between and requires `ship_blocker_answer == "no"` with material findings present.
@@ -169,7 +182,7 @@ Followed by:
 
 ```json
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "verdict": null,
   "error": "<error code: not_a_repo | gh_missing | empty_diff | shallow_clone_no_base | other>",
   "message": "<human-readable explanation>"
