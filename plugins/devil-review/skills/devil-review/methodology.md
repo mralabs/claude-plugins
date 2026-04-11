@@ -10,6 +10,8 @@ Do not fix issues. Do not suggest you are about to make changes. Review only.
 
 Default to skepticism. Assume the change can fail in subtle, high-cost, or user-visible ways until the evidence says otherwise. Do not give credit for good intent, partial fixes, or likely follow-up work. If something only works on the happy path, treat that as a real weakness.
 
+**Prior review output is not an architectural decision.** CLAUDE.md sections and active specs earn deference because they represent considered, ratified choices — prior reviewer recommendations do not. If the current diff implements a change *in response to earlier feedback* (previous devil review, codex review, PR comment, peer review), treat that origin as **additional** reason to audit, not less. Over-correction is the default failure mode when a developer targets a narrow critique: the fix answers the exact question raised and ignores the new foot-guns it introduces. The earlier reviewer saw an earlier diff; you see this one. Re-run the ship-blocker question from zero on every choice the diff makes, including choices imported from prior reviews.
+
 ---
 
 ## Attack surface (generic)
@@ -52,6 +54,43 @@ For each added or modified **symbol** in the diff — function, method, componen
 Read the surrounding code, not just the diff. The most dangerous bugs live at call boundaries — where a symbol's assumptions about its caller or callee are violated by the change.
 
 The output **must** record every symbol you inspected in the Trace Log — skipping this step is skipping the review.
+
+### Mutated record fanout (mandatory)
+
+Symbol tracing follows the **call graph**; this step follows the **data model**. They catch different bugs.
+
+For every record (struct, class, store entity, DB row, message payload) whose fields are **written** in the diff, enumerate *all sibling fields on that same record* — not just the ones the diff touches. For each sibling, ask:
+
+- Does this mutation leave the sibling pointing at a **stale reference** from a prior owning entity? (e.g. `planFilePath` still pointing at the old session after a re-link that clears `agentSessionId`)
+- Does the sibling carry **data from a prior lifecycle** that the new write implicitly invalidates? (e.g. `errorMessage` from a crashed session not cleared when the tab is re-attached to a fresh one)
+- Does the sibling hold an **invariant the write silently broke**? (e.g. `lastSyncTimestamp > createdAt` when `createdAt` is rewritten but the sync timestamp is not)
+
+A write that looks local ("I'm just updating `agentSessionId`") often has a silent co-dependency with sibling fields that were never updated — because the previous owner wrote them and nothing in the new write path clears them. This is the **writer-side fanout** bug. The reader-side dual is: *who reads the sibling field?* If any reader exists, stale siblings produce wrong behavior at the read site, not the write site, which is why grep-by-symbol misses them.
+
+**What counts as a sibling** (record-shape rules):
+
+- **Flat records**: straightforward — every other field at the same level as the written field is a sibling.
+- **Nested records**: enumerate only the **immediate siblings at the same level** as the written field. Do not recurse. If a nested sub-record (e.g., `Tab.ptyState.exitCode`) has its own writes in the diff, treat that sub-record as a **separate entry** in `mutated_records_inspected` with its own siblings list. Recursive enumeration from the root bloats the trace log past usefulness; entry-per-written-level keeps it finite.
+- **Inherited records**: treat parent and child as a **single combined record**. Parent class fields count as siblings of child class fields — the runtime object has both. List the most-derived type name as the `record`, but include inherited fields in `siblings_considered`.
+- **Discriminated unions / sum types / tagged enums**: enumerate only the fields of the **variant actually written** by the diff. Other variants' fields are not siblings (they don't exist on the runtime object at that moment). If the diff writes the discriminator itself (e.g., changes `kind` from `'agent'` to `'terminal'`), the fields of the *outgoing* variant become stale and must all be cleared — list them as siblings of the discriminator write.
+
+Record your findings in the Trace Log field `mutated_records_inspected` — one entry per record, listing every sibling field you considered. If you inspect a record and conclude no sibling is at risk, list it anyway with the note `no siblings at risk`. An empty `mutated_records_inspected` means you skipped this step.
+
+### Runtime contract verification (cross-boundary types)
+
+Type signatures describe shape at compile time. They do **not** describe the runtime format of data that crosses a trust or language boundary. For every type in the diff that crosses one of:
+
+- **IPC** (Electron main↔renderer, Tauri commands, postMessage, shared memory)
+- **API response** (REST/GraphQL/gRPC/WebSocket payloads deserialized into typed objects)
+- **Database row** (ORM result → typed model)
+- **Queue/message payload** (job args, event bus messages, pub/sub)
+- **Cross-language FFI** (Rust↔TS, Python↔C, Swift bridging)
+
+...do **not** trust the consumer-side type signature alone. Read the **producer** of the payload in its native source — the Rust handler, the API writer, the migration that defined the column, the job enqueuer — and verify the runtime shape matches the consumer's assumption. A field typed `createdAt: string` may be written as ISO 8601, RFC 2822, epoch-millis, or epoch-seconds — the type tells you nothing about which, and tests written against the consumer's mental model will pass while production fails.
+
+**Tests-as-proof does not count.** If the test file mocks the payload using the consumer's assumption, the test is tautological — it proves only that the consumer agrees with itself. Real verification requires reading the producer. A test that mocks `createdAt: "2026-04-01"` has never exercised an epoch-millis producer. Treat such tests as *absent* coverage for the contract boundary.
+
+When you verify a contract, record the producer location in the finding body (e.g., "producer: `src-tauri/src/reader.rs:115` writes `mtime.as_millis().to_string()` — consumer assumes ISO").
 
 ---
 
@@ -136,7 +175,26 @@ Before finalizing, verify each finding is:
 - plausible under a realistic failure scenario (not purely theoretical)
 - actionable for an engineer fixing the issue
 - framed at the **root invariant**, not a narrow symptomatic instance (apply the generalization test from calibration rules)
+- grounded by **test-trace** — you can answer "why didn't existing tests catch this?" per the subsection below
 - NOT already fixed in the current file on disk (re-read to confirm)
 - NOT an intentional decision documented in CLAUDE.md or an active spec
+
+### Test-trace (mandatory per-finding)
+
+For every finding you are about to report, locate the test files that cover the affected code path and answer one question in a single sentence: **"Why didn't existing tests catch this?"**
+
+The answer must start with one of the three literal codes below, followed by `: ` and a grounded one-sentence explanation. This canonical form (`<code>: <explanation>`) is enforced by `output-schema.md` so downstream consumers can discriminate on the code prefix.
+
+1. **`no-test`** — no test file covers the affected path. State where you looked. Example: `"no-test: no tests under src/__tests__/linkTabToAgentSession*"`.
+2. **`mock-bypass`** — a test exists but mocks the dependency that actually fails, bypassing the failure path. Name the mock and the test location. Example: `"mock-bypass: LinkSessionDialog.spec.ts:42 mocks createdAt as ISO, bypassing the epoch-millis producer"`.
+3. **`missing-assertion`** — a test exists and exercises the path, but asserts only a subset of invariants. Name the test and the missing invariant. Example: `"missing-assertion: useSessionLink.test.ts:88 covers happy path but asserts nothing about planFilePath after link"`.
+
+**If you cannot produce one of these three answers, your finding is either wrong or you did not read the test files.** Drop the finding or re-trace with the tests actually in hand. This is a validation gate, not paperwork: if a test truly covers the invariant you claim is violated, the finding is a false positive and belongs in `considered_not_promoted` with reason `test-covers-invariant`.
+
+**Mocked tests do not count as coverage for contract-boundary bugs.** A test that mocks the exact value the bug produces is tautological — it proves only that the consumer agrees with itself. See the runtime contract verification step.
+
+Record the answer in the finding's `test_coverage` field per `output-schema.md`. The field is mandatory on every reported finding.
+
+---
 
 Drop any finding that fails these checks. Apply the hard cap. Then produce output per `output-schema.md`.

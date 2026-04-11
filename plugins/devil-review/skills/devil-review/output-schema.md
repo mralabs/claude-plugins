@@ -31,6 +31,11 @@ Changed symbols inspected:
 - `<symbol>` → consumers: <file:line>
 - ...
 
+Mutated records inspected:
+- `<record>` (<kind: struct|store-entity|db-row|ipc-payload|api-payload|queue-message>) → siblings: <field1>, <field2>, <field3>
+- `<record>` → siblings: <field1>, <field2> — note: no siblings at risk
+- ...
+
 Architectural decisions checked:
 - <CLAUDE.md section, spec path, or "n/a">
 
@@ -40,7 +45,7 @@ Scenarios considered:
 - ...
 
 Considered but not promoted:
-- <observation> — reason: <out-of-scope | low-confidence | covered-by-finding-<N> | spec-accepted>
+- <observation> — reason: <out-of-scope | low-confidence | covered-by-finding-<N> | spec-accepted | test-covers-invariant>
 - ...
 
 ## Findings
@@ -53,6 +58,11 @@ Considered but not promoted:
 <body — what can go wrong, why this code path is vulnerable, likely impact>
 
 **Recommendation**: <concrete change to reduce risk>
+
+**Test coverage**: <one of the three canonical forms>
+- `no-test: <one-sentence explanation — where you looked>`
+- `mock-bypass: <one-sentence explanation — which mock, which test file:line>`
+- `missing-assertion: <one-sentence explanation — which test file:line, which invariant is missing>`
 
 ---
 
@@ -73,10 +83,12 @@ If no material findings: "No material findings. The change looks safe to ship."
 - **`classification_notes` must always be a non-empty sentence.** Even for trivial calls, write one sentence explaining how classification was decided ("all files under `routes/` and `controllers/` — straightforward api.md load" is fine). `null` and empty string are invalid. The field exists to force you to *think* about classification, not to skip it.
 - **`symbols_inspected` cannot be empty** on any review that produced findings. If you report a finding, you must have inspected at least one symbol's consumers to ground it.
 - **`symbols_inspected` may be empty only** when the diff is pure additions with no touched pre-existing symbols (net-new isolated file) — and in that case, add `no pre-existing consumers — net-new code` as a scenario line.
+- **`mutated_records_inspected` is required on every review that writes to a record.** Record tracing follows the data model, not the call graph — it catches stale-sibling-field bugs that symbol tracing misses. See the "Mutated record fanout" section in `methodology.md`. Each entry lists the record and every sibling field you considered, even those you concluded were safe (mark them `no siblings at risk`). Empty array `[]` is valid only when the diff contains no record writes at all — rare, and in that case add `no record writes in diff` as a scenario line.
 - **Deletions count as changes.** If the diff removes a symbol, trace its former callers and list them in `symbols_inspected` with a `(deleted)` suffix on the symbol name.
 - **One line per symbol, one line per scenario.** Do not prose-explain; the JSON block carries structured data for chain-consumers.
 - If a domain checklist was loaded (e.g., `domains/ui.md`), list the domain under "Scenarios considered" as `domain: <name>` alongside concrete scenarios.
-- **`considered_not_promoted` captures observations you noticed but decided not to report.** Use it when you see something during the trace — a smell, a secondary symptom, a speculative risk — that did not clear the finding bar. Each entry is one line with a reason from the fixed set: `out-of-scope`, `low-confidence`, `covered-by-finding-<N>` (where `<N>` is the 1-based index of the covering finding in the `findings` array — e.g. `covered-by-finding-2`), or `spec-accepted`. The field is optional: empty list `[]` is valid, and you should not pad it to look thorough. Its purpose is the opposite — it exists so the reviewer can see *what you thought about and dropped*, so those observations are not silently lost and can be promoted manually if the user disagrees with your triage. If you used it to drop an observation because it was "just a symptom", check that the underlying invariant did not also escape your main findings list — see the generalization test in `methodology.md`.
+- **`considered_not_promoted` captures observations you noticed but decided not to report.** Use it when you see something during the trace — a smell, a secondary symptom, a speculative risk — that did not clear the finding bar. Each entry is one line with a reason from the fixed set: `out-of-scope`, `low-confidence`, `covered-by-finding-<N>` (where `<N>` is the 1-based index of the covering finding in the `findings` array — e.g. `covered-by-finding-2`), `spec-accepted`, or `test-covers-invariant` (a test you would expect to miss the bug actually asserts the invariant — finding is a false positive, record which test). The field is optional: empty list `[]` is valid, and you should not pad it to look thorough. Its purpose is the opposite — it exists so the reviewer can see *what you thought about and dropped*, so those observations are not silently lost and can be promoted manually if the user disagrees with your triage. If you used it to drop an observation because it was "just a symptom", check that the underlying invariant did not also escape your main findings list — see the generalization test in `methodology.md`.
+- **`test_coverage` is required on every reported finding.** It carries the answer to "why didn't existing tests catch this?" per the test-trace rule in `methodology.md`. The field has two keys: `covered_by` (test file:line or `null`) and `why_missed`. `why_missed` must always follow the canonical form `<code>: <one-sentence explanation>` where `<code>` is exactly one of the three literals `no-test`, `mock-bypass`, or `missing-assertion`, followed by a colon, a space, and a one-sentence explanation grounded in a file/line. Examples: `"no-test: no tests under src/__tests__/linkTabToAgentSession*"`, `"mock-bypass: LinkSessionDialog.spec.ts:42 mocks createdAt as ISO, bypassing the epoch-millis producer"`, `"missing-assertion: useSessionLink.test.ts:88 covers happy path but asserts nothing about planFilePath"`. Free-form sentences without a leading code are invalid — the code prefix exists so downstream consumers can discriminate. If you cannot fill this field honestly, the finding is invalid — either re-read the tests or drop it to `considered_not_promoted` with reason `test-covers-invariant`. This is a grounding gate, not a documentation nicety.
 
 ---
 
@@ -88,10 +100,11 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - `1.0` — initial schema: verdict, target, scope, findings, trace_log with symbols_inspected + scenarios_considered
 - `1.1` — added `ship_blocker_answer`, `ship_blocker_reasoning`, `domains_loaded`, `domains_considered_dropped`, `classification_notes`. New `block` verdict value. No fields removed or retyped.
 - `1.2` — added optional `trace_log.considered_not_promoted` for observations the reviewer saw but dropped from findings (with reason). No fields removed or retyped; older consumers that do not know the field can ignore it.
+- `1.3` — added required `findings[].test_coverage` (object with `covered_by` and `why_missed`) and required `trace_log.mutated_records_inspected` (array tracking data-model fanout, parallel to `symbols_inspected` which tracks the call graph). Added `test-covers-invariant` to the allowed reasons in `considered_not_promoted`. No fields removed or retyped, but the two new required fields mean a v1.2 consumer reading a v1.3 payload will see unknown keys; strict consumers must bump.
 
 ```json
 {
-  "schema_version": "1.2",
+  "schema_version": "1.3",
   "verdict": "block | needs-attention | approve",
   "target": {
     "mode": "working-tree | branch | pr",
@@ -120,6 +133,14 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
         "consumers": ["<path/to/caller>:<line>", "..."]
       }
     ],
+    "mutated_records_inspected": [
+      {
+        "record": "<name of struct, store entity, row, or payload>",
+        "kind": "struct | store-entity | db-row | ipc-payload | api-payload | queue-message",
+        "siblings_considered": ["<field1>", "<field2>", "..."],
+        "note": "<optional — e.g. 'no siblings at risk' or 'planFilePath stale after link'>"
+      }
+    ],
     "architectural_decisions_checked": ["<CLAUDE.md section ref>", "..."],
     "scenarios_considered": [
       "<one-line adversarial scenario>",
@@ -128,7 +149,7 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
     "considered_not_promoted": [
       {
         "observation": "<one-line description of what you noticed>",
-        "reason": "out-of-scope | low-confidence | covered-by-finding-<N> | spec-accepted"
+        "reason": "out-of-scope | low-confidence | covered-by-finding-<N> | spec-accepted | test-covers-invariant"
       }
     ]
   },
@@ -142,7 +163,11 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
       "what_can_go_wrong": "...",
       "why_vulnerable": "...",
       "impact": "...",
-      "recommendation": "..."
+      "recommendation": "...",
+      "test_coverage": {
+        "covered_by": "<path/to/test:line or null>",
+        "why_missed": "<code>: <one-sentence explanation>"
+      }
     }
   ]
 }
@@ -157,7 +182,9 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - **`trace_log.domains_considered_dropped`** is required on every non-error run. Empty array `[]` is valid if no candidate domain was dropped. Every dropped entry needs `{domain, reason}` where reason is one of `not-matched`, `overlap`, `not-applicable`.
 - **`trace_log.classification_notes`** is **unconditionally required** on every non-error run. A single non-empty sentence explaining how classification was decided — even trivial cases ("all files under `src/components/*.vue` — straightforward ui.md load" is fine). `null` and empty strings are invalid. The field forces deliberate thought about routing; it is not an optional "notes" slot.
 - **`trace_log.symbols_inspected`** cannot be empty if `findings` is non-empty. If it is, you are reporting findings without grounding — drop them or redo the trace.
-- **`trace_log.considered_not_promoted`** is optional — empty array `[]` is valid and preferred over padding. Each entry requires both `observation` (one sentence) and `reason`. `reason` must be one of the literal strings `out-of-scope`, `low-confidence`, `spec-accepted`, or the pattern `covered-by-finding-<N>` where `<N>` is the 1-based index of the covering finding in the `findings` array (e.g. `covered-by-finding-1` for the first finding). If the covering finding is dropped or reordered later, update the index. Do not use this field to smuggle in extra findings — if an observation deserves action, promote it to `findings` and let it earn its slot under the hard cap.
+- **`trace_log.considered_not_promoted`** is optional — empty array `[]` is valid and preferred over padding. Each entry requires both `observation` (one sentence) and `reason`. `reason` must be one of the literal strings `out-of-scope`, `low-confidence`, `spec-accepted`, `test-covers-invariant`, or the pattern `covered-by-finding-<N>` where `<N>` is the 1-based index of the covering finding in the `findings` array (e.g. `covered-by-finding-1` for the first finding). If the covering finding is dropped or reordered later, update the index. Do not use this field to smuggle in extra findings — if an observation deserves action, promote it to `findings` and let it earn its slot under the hard cap. Use `test-covers-invariant` when you traced a candidate bug to an existing test that actually asserts the invariant you thought was violated — record the test location in the observation for auditability.
+- **`trace_log.mutated_records_inspected`** is required on every review where the diff writes to at least one record. Each entry requires `record`, `kind`, `siblings_considered` (list every sibling field on the record, even ones you concluded were safe), and optionally `note`. Empty array `[]` is valid only if the diff contains zero record writes — in that case add `no record writes in diff` as a scenario line. Skipping this field when writes exist is the same class of grounding failure as an empty `symbols_inspected`: you skipped the data-model fanout trace.
+- **`findings[].test_coverage`** is required on every finding. Both `covered_by` (test file path with line, or `null`) and `why_missed` (enum: `no-test`, `mock-bypass`, `missing-assertion`, plus a one-sentence explanation) must be present. If you cannot produce a test-trace answer from one of these three categories, the finding is invalid — either re-read the tests or drop it. See the test-trace rule in `methodology.md`. This field cannot be `null` and cannot be omitted: a finding without it indicates the reviewer skipped the validation gate and the finding cannot be trusted.
 - **`findings` length must respect the hard cap** from `methodology.md` (3 under 500 lines, 5 under 1500, 3 per split group).
 - **`confidence`** is 0.0–1.0. Use it for your own uncertainty — do not soften severity to compensate for low confidence.
 - **Verdict consistency**: `block` requires at least one `critical` or `high` finding AND `ship_blocker_answer == "yes"`. `approve` requires zero findings. `needs-attention` is everything in between and requires `ship_blocker_answer == "no"` with material findings present.
@@ -182,7 +209,7 @@ Followed by:
 
 ```json
 {
-  "schema_version": "1.2",
+  "schema_version": "1.3",
   "verdict": null,
   "error": "<error code: not_a_repo | gh_missing | empty_diff | shallow_clone_no_base | other>",
   "message": "<human-readable explanation>"

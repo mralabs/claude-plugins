@@ -161,6 +161,12 @@ The findings cap still applies per group (see `methodology.md`).
 
 4. **Changed symbols & consumers tracing** — for every added or modified symbol in the diff, grep for its usage and read the calling sites. The methodology file defines what counts as a "symbol" and what to trace. Every symbol you inspect must appear in the Trace Log in the final output.
 
+5. **Mutated record fanout tracing** — for every record (struct, store entity, DB row, IPC/API/queue payload) whose fields are written in the diff, enumerate all sibling fields on the same record and check each for stale references, lifecycle leakage, or silently broken invariants. This follows the data model, not the call graph, and catches bugs that symbol tracing cannot. See the "Mutated record fanout" section in `methodology.md`. Every record you inspect must appear in `trace_log.mutated_records_inspected`.
+
+6. **Runtime contract verification** — for every type in the diff that crosses a trust or language boundary (IPC, API response, DB row, queue payload, FFI), read the producer in its native source rather than trusting the consumer-side type signature. Tests that mock the payload from the consumer's perspective do not count as verification. See the "Runtime contract verification" section in `methodology.md`.
+
+7. **Test-trace** — every finding you plan to report must carry a test_coverage answer explaining why existing tests did not catch the bug, chosen from `no-test`, `mock-bypass`, or `missing-assertion`. If no answer is possible, the finding is invalid — re-read the tests or drop it. See the "Test-trace" section in `methodology.md`.
+
 ---
 
 ## Step 6 — Review
