@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+#
+# pre-commit: enforce plugin manifest version consistency.
+#
+# For every plugin listed in .claude-plugin/marketplace.json, verify that its
+# marketplace version matches plugins/<name>/.claude-plugin/plugin.json.
+# Blocks the commit if the two drift.
+#
+# The check runs only when the commit touches plugin files or the marketplace
+# manifest — unrelated commits (tooling, docs-only on CLAUDE.md, etc.) pass
+# through untouched.
+#
+# Setup: run once after cloning
+#   git config core.hooksPath .githooks
+
+set -eu
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+MARKETPLACE="$REPO_ROOT/.claude-plugin/marketplace.json"
+
+if [ ! -f "$MARKETPLACE" ]; then
+  exit 0
+fi
+
+staged=$(git diff --cached --name-only)
+if ! printf '%s\n' "$staged" | grep -qE '^(plugins/|\.claude-plugin/marketplace\.json)'; then
+  exit 0
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "pre-commit: python3 not found — skipping version drift check." >&2
+  echo "pre-commit: install python3 or disable this hook if you know what you're doing." >&2
+  exit 1
+fi
+
+python3 - "$REPO_ROOT" <<'PY'
+import json
+import os
+import sys
+
+repo_root = sys.argv[1]
+marketplace_path = os.path.join(repo_root, ".claude-plugin", "marketplace.json")
+
+with open(marketplace_path, "r", encoding="utf-8") as f:
+    marketplace = json.load(f)
+
+errors = []
+
+for entry in marketplace.get("plugins", []):
+    name = entry.get("name")
+    marketplace_version = entry.get("version")
+
+    if not name:
+        errors.append("marketplace.json has a plugin entry with no 'name' field")
+        continue
+    if not marketplace_version:
+        errors.append(f"marketplace.json entry '{name}' has no 'version' field")
+        continue
+
+    plugin_json_path = os.path.join(
+        repo_root, "plugins", name, ".claude-plugin", "plugin.json"
+    )
+    if not os.path.isfile(plugin_json_path):
+        errors.append(
+            f"plugin '{name}': plugin.json missing at plugins/{name}/.claude-plugin/plugin.json"
+        )
+        continue
+
+    try:
+        with open(plugin_json_path, "r", encoding="utf-8") as f:
+            plugin_json = json.load(f)
+    except json.JSONDecodeError as e:
+        errors.append(f"plugin '{name}': plugin.json is not valid JSON: {e}")
+        continue
+
+    plugin_version = plugin_json.get("version")
+    if not plugin_version:
+        errors.append(
+            f"plugin '{name}': plugin.json has no 'version' field "
+            f"(marketplace declares {marketplace_version})"
+        )
+        continue
+
+    if plugin_version != marketplace_version:
+        errors.append(
+            f"plugin '{name}': version drift\n"
+            f"  marketplace.json:                              {marketplace_version}\n"
+            f"  plugins/{name}/.claude-plugin/plugin.json:  {plugin_version}"
+        )
+
+if errors:
+    print("pre-commit: plugin manifest version drift detected", file=sys.stderr)
+    print("", file=sys.stderr)
+    for err in errors:
+        print(f"  - {err}", file=sys.stderr)
+    print("", file=sys.stderr)
+    print(
+        "Sync marketplace.json and plugin.json before committing. "
+        "See CLAUDE.md 'Version bumping discipline'.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+sys.exit(0)
+PY
