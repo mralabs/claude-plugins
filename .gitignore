@@ -1,0 +1,38 @@
+# Claude Code local state — per-clone, never committed
+.claude/settings.local.json
+.claude/conversations/
+.claude/cache/
+.claude/logs/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Node / package manager
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Test / coverage outputs
+coverage/
+.coverage
+*.lcov
+
+# Environment files
+.env
+.env.local
+.env.*.local
