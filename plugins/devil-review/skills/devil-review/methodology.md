@@ -19,6 +19,7 @@ Default to skepticism. Assume the change can fail in subtle, high-cost, or user-
 Prioritize failure classes that are expensive, dangerous, or hard to detect across any kind of project:
 
 - auth, permissions, tenant isolation, and trust boundaries
+- LLM/agent/model output consumed as trusted input — fields emitted by a language model, agent, rule engine, or any external automation must be treated as untrusted, not "known-good in testing" (see the **LLM/agent output validation** subsection under Review method)
 - data loss, corruption, duplication, and irreversible state changes
 - rollback safety, retries, partial failure, and idempotency gaps
 - race conditions, ordering assumptions, stale state, and re-entrancy
@@ -150,6 +151,47 @@ Common cases:
 
 When you verify a contract, record the producer location in the finding body (e.g., "producer: `src-tauri/src/reader.rs:115` writes `mtime.as_millis().to_string()` — consumer assumes ISO").
 
+### LLM/agent output validation (mandatory when diff consumes model output)
+
+Runtime contract verification above covers boundaries where a schema-bearing producer (Rust handler, API writer, migration) emits data whose runtime format you can read. This subsection covers a harder case: boundaries where the producer is an **LLM, agent, ML pipeline, rule engine, or other non-deterministic automation** whose output shape is not bound by any schema at runtime. The producer is "whatever the model decided to emit this time", and no amount of reading the producer source tells you what will arrive next invocation.
+
+**The bug class**: the model emits a shape that satisfies the consumer's type signature but violates a semantic invariant the consumer assumed without validation. `status: string` tells you nothing about which statuses are legal landing states for this workflow; "my prompt asks for backlog-only" is not a contract, it is a hope. The failure mode is silent (no type error, no crash, just a wrong value written and trusted) and probabilistic (the same prompt passes some of the time), which defeats both compile-time and test-time detection strategies.
+
+**Mandatory checks for every field the diff consumes from model/agent output**:
+
+1. **Enum / status / state-machine fields** — is the field validated against a closed set of allowed values before being written to persistent state? Is that allowed set the same as the set of values the user's workflow expects? If the spec says "new items land in backlog" but the code accepts any valid column, the bug exists regardless of whether the model has ever emitted a non-backlog value in practice. Prompt-side constraints are not consumer-side validation.
+2. **Source-identifying metadata** (file paths, hashes, IDs, URLs, line ranges) — is the value cross-checked against the source material it claims to derive from? If the diff stores `source_file: "README.md"` and `source_hash: "abc..."` emitted by the model, is there any path where the hash is accepted from the model directly without the consumer recomputing it against the actual file bytes?
+3. **Extracted entities** (tags, labels, names, dates, references) — is the extracted value re-grepped / re-parsed against the source, or accepted verbatim because "the model extracted it"?
+4. **Confidence-adjacent fields** — if the model emits a confidence score or similar self-assessment, is it used as a gating signal (reject below threshold, require human review) or just recorded for later display? Recording without gating is the common failure mode.
+
+**The review question**: *"which fields does the diff consume from the model, and which of those are validated on the consumer side before any user-visible or persistence-relevant write?"* Any unvalidated field reaching such a write is a finding. Severity starts at **high** per the LLM-compliance severity floor in the calibration rules.
+
+**Tests do not substitute for validation.** If the test suite mocks the model's output using realistic-looking values, it proves only that the consumer agrees with itself about realistic shapes — it has never exercised a surprising emission. Test-trace such findings as `no-test` unless a test specifically asserts the consumer rejects shape-valid but semantically invalid input.
+
+Record the validation audit findings in the finding body (name the consumer file:line and the specific field that is unvalidated), and include one line per consumed field in `scenarios_considered`: `llm-field: <field_name> — <validated|unvalidated|partial>`.
+
+### Acceptance criteria crosswalk (when spec with explicit ACs is present)
+
+Pre-review context (SKILL.md Step 5.2) reads any accompanying spec, RFC, task file, or other document **as a source of architectural constraints** — so findings do not falsely contradict intentional decisions. This subsection flips the direction: if the spec lists **explicit acceptance criteria**, the review also uses the spec to **audit the implementation**.
+
+**The bug class**: the spec says "X must happen", the implementation is silent about X, the reviewer reads the spec for context and moves on to diff-level concerns. The AC is never cross-checked against code, so a missing enforcement slips through. Symbol tracing does not catch this because the missing code has no symbol; record fanout does not catch it because the fields that would have implemented the AC are absent.
+
+**When to apply**: the spec must have **structured** acceptance criteria — explicit "must" statements, a checklist of criteria, a numbered list of requirements, a "definition of done". Narrative-only specs and informal docs are out of scope — the crosswalk requires line-level ACs to be tractable. If the spec is prose-only, note this in the trace log (`classification_notes`) and skip the crosswalk.
+
+**Mandatory walk**: for every AC in the spec, write down the specific file:line that implements it. Three failure modes to flag as findings:
+
+1. **No corresponding implementation** — the AC is listed but no code enforces it. Finding severity is at least **high** by default; the spec was explicit and the implementation is silently non-compliant.
+2. **Ambiguous mapping** — code is partially related but cannot be verified to enforce the AC without inference. Finding severity depends on what the AC protects (user-visible state → high; internal invariant → medium).
+3. **Contradicting implementation** — code is present but does the opposite of what the AC requires. Always ship-blocker; the spec and the code disagree and the spec is the intended contract.
+
+The crosswalk is **per-AC, not per-file**. Walk the spec's AC list top to bottom; for each one, write the proof-of-implementation in `trace_log.acceptance_criteria_crosswalk`. If you cannot write it, that is the finding.
+
+**Severity reasoning**: an unenforced AC that could silently produce wrong output starts at **high** because (a) the spec was explicit, (b) the implementation is silent about diverging, (c) no test is likely to catch it — tests cover code that exists, not code that is missing. The user has no visible signal that the AC was dropped.
+
+**Test-trace for missing-AC findings**: the canonical answer is almost always `no-test: the AC has no corresponding code, so no test file could exist to cover it`. Use this verbatim form; it is not a grounding gap but the nature of the bug class — the finding is *about* the absence.
+
+Record the full crosswalk (every AC, whether passed or failed) in `trace_log.acceptance_criteria_crosswalk`. See `output-schema.md` for the field format. Recording the passed ACs too is deliberate: it makes the "I checked" claim falsifiable and helps downstream tools diff crosswalks across iterations.
+
 ---
 
 ## Severity definitions
@@ -222,6 +264,18 @@ In **PR mode**, do NOT re-read from disk. The reviewer's local HEAD is almost ne
 **When the narrow framing is correct**: if dropping any precondition genuinely makes the bug disappear, your original frame *was* the invariant — keep it, but note in the body that you checked for generalization.
 
 **The test corrects framing, not severity.** Widening the frame is about accurately describing the invariant, not earning more severity points. A correctly widened finding may still be `low` — some invariants are broken but the blast radius stays small. After widening, re-run the block test on the new finding from scratch rather than carrying severity over from the narrow version. The severity-inflation guard in `output-schema.md` still applies: if your ship-blocker answer is `yes` but no individual finding scores critical or high on the honest severity definitions, the problem is the verdict, not the finding.
+
+**Severity floor for LLM-compliance-dependent invariants.** When a correctness invariant depends on external non-deterministic output (LLM, agent, ML model, rule engine, user-supplied automation) being well-formed, raise the severity floor. The reasoning is that the failure mode is silent (no type error, no crash) and probabilistic (the same prompt passes some of the time), which defeats both compile-time and test-time detection:
+
+- If an unvalidated model-emitted field hits **persistent state or user-visible action** (UI update, DB write, message emission, irreversible operation, workflow transition), the finding is at least **high**. Do not grade it down because "the model usually emits the right shape" — usually-correct is exactly the failure mode.
+- The floor drops to **medium** only if the consumer applies a partial validation that catches the common cases, OR the field is purely internal and never escapes the session.
+- The floor drops to **low** only if no realistic bad emission can propagate — strict validation runs before any side-effecting path reads the field, and the validator is tested against adversarial inputs.
+
+This is a *floor*, not a ceiling. Blast radius, user trust impact, and data permanence still push severity up (e.g. an unvalidated model field that drives a payment, a deploy, or a user-facing confirmation is critical, not high). But no LLM-compliance-dependent finding starts below high without a defensible reason named in the finding body — cite the file:line of the downstream validator, or the specific scope that prevents escape.
+
+**The test**: *"could a surprising model emission — shape-valid but semantically wrong — corrupt state the user trusts or takes action on?"* If yes, start at high. If no, justify medium with the specific downstream validation that catches it, and name the file:line where validation happens.
+
+**Interaction with "medium is the most-abused tier"**: this floor raises findings *up*, not down. It never promotes a legitimately-low finding to medium, and it does not license inflating uncertain findings to high as a hedge. Confidence still belongs in the confidence score, not the severity. What this rule changes is the **starting point** for LLM-compliance cases — they default high and must be actively argued down, rather than defaulting medium and hoping the reviewer notices the silent-and-probabilistic failure mode.
 
 ---
 
