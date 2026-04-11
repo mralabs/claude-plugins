@@ -133,6 +133,37 @@ For each source, the element's interactivity must be **consistent**. If one sour
 
 ---
 
+## Store-level mutation fanout (Pinia, Vuex, Redux, Zustand, Svelte stores)
+
+UI state stores hold records whose fields are usually updated one at a time — and this is a prime location for **Mutated record fanout** bugs per `methodology.md`. When a store action writes one field on an entity, the sibling fields of that entity are candidates for stale state that the UI will happily render.
+
+The canonical foot-gun: a user tab / item / session record has many persistent fields (title, icon, selected, error, status, planPath, lastModified, dirty). A store action named `linkTabToSession` updates `sessionId` but leaves `planPath`, `error`, and `lastModified` pointing at the *previous* session. The UI binds to those fields and keeps showing stale information. The bug is invisible to symbol-tracing because nothing in the action's callgraph is wrong — the data-model neighborhood is.
+
+For every store action or reducer touched by the diff, trace:
+
+1. **Which entity type is being mutated** — the store holds `Tab`, `Chat`, `User`, `Project`, etc. What's the shape?
+2. **Which fields the action writes** — the obvious answer is in the diff.
+3. **Which sibling fields are on the same entity** — enumerate them from the store's type definition or state shape.
+4. **For each sibling, ask**: does this write leave the sibling claiming something from the previous lifecycle?
+   - `title` still says the old session's name
+   - `errorMessage` still holds the crash from the prior PTY
+   - `planPath` still points at a file from the replaced agent
+   - `lastActivityAt` is older than the new content
+   - `isDirty` was true before the mutation and is still true after
+5. **Who reads each sibling field** — `v-bind`, `{{ }}`, JSX `{tab.error}`, selectors, memoized derivations. Each reader is a site where stale state becomes visible.
+
+The rule of thumb: **a store action that changes what an entity "is" must treat siblings as owned by the old identity, not the new one**. Either clear them, refresh them, or recompute derived state.
+
+Record entity + sibling fields in `mutated_records_inspected` with `kind: store-entity`.
+
+**Common stores to inspect for fanout** when UI diffs touch them:
+- tab / pane / split / window stores (multi-instance, persistent siblings)
+- chat / message / thread stores (streaming writes leave siblings mid-update)
+- form stores (field value written but `touched` / `dirty` / `error` not reconciled)
+- selection stores (`selectedId` changed but `selectionRange` / `anchor` / `focusRow` stale)
+
+---
+
 ## Output integration
 
 When this checklist is loaded, the Trace Log's `scenarios_considered` must include **at least one multi-instance scenario** if the touched component has a plural mount site. Example:

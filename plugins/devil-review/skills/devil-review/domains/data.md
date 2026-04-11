@@ -111,6 +111,40 @@ Check: does the change follow the multi-step pattern, or does it collapse into a
 
 ---
 
+## Column-level mutation fanout
+
+Database migrations are a specialized case of the **Mutated record fanout** rule from `methodology.md`. Every column the migration touches has siblings — other columns on the same row, and downstream data derived from it. Writing or removing one column without updating the siblings is a silent data-integrity bug.
+
+For every column the migration adds, renames, drops, retypes, or backfills, enumerate:
+
+- **Other columns on the same row**: did the retype of `amount` from `INT` to `DECIMAL` leave `currency_code` now referring to a different precision? Did renaming `user_id` to `account_id` leave a stale `user_email` denormalized column claiming the old ownership?
+- **Indexes involving the column**: renaming a column invalidates indexes that name it. Dropping a column silently removes it from composite indexes. Does the migration drop/recreate the affected indexes explicitly?
+- **Triggers and stored procedures that read the column**: `CREATE OR REPLACE VIEW ...` that selects the column breaks when the column is renamed. So does a trigger. Grep the schema for references.
+- **Check constraints referencing the column**: a CHECK expression that uses `old_name` fails after rename. Engines differ on whether the check is rewritten automatically.
+- **Foreign keys pointing to the column**: retyping a PK column from `INT` to `BIGINT` requires all FK columns in other tables to be widened too, or the FK constraint will be silently invalid on some engines.
+- **Generated columns depending on the column**: computed/generated columns reference source columns by name. Renames and drops break them.
+- **Application code that SELECTs the column by name**: grep the app for string literals of the old column name. ORMs generally handle this via migrations, but raw SQL in application code does not.
+
+Record the column and its siblings in `mutated_records_inspected` with `kind: db-row`.
+
+---
+
+## ORM shape vs runtime row format (contract boundary)
+
+The database row is a contract-boundary type per the **Runtime contract verification** step in `methodology.md`. The ORM model (SQLAlchemy class, Prisma type, ActiveRecord, Drizzle schema, TypeORM entity) is the consumer's view — the actual column types in the migration are the producer's view. These can drift:
+
+- **Timestamp types**: the migration declares `TIMESTAMP WITHOUT TIME ZONE` but the ORM maps it to a JavaScript `Date`, which forces an implicit timezone interpretation. Different drivers make different choices; some return strings, some return `Date`, some return epoch numbers.
+- **Decimal precision loss**: `DECIMAL` / `NUMERIC` columns used for financial math (prices, tax, balances) are returned as **strings** by well-behaved drivers precisely because IEEE 754 `float64` cannot represent `0.1 + 0.2 === 0.3` exactly. ORMs that type them as `number` and cast through `parseFloat` silently introduce rounding errors in ledger arithmetic — the bug is invisible per-row and only appears as a cumulative reconciliation drift. Read the driver docs for the column's actual return type, not the ORM's declared type.
+- **Integer overflow on wide numeric types**: `NUMERIC(38,0)` (used for blockchain-scale IDs, very large counters, some analytics sums) holds values far exceeding `Number.MAX_SAFE_INTEGER` (~9 × 10^15). ORMs that cast the string-returning driver output to `number` truncate silently above 2^53. Use `bigint` / `BigInt` / string-preserving mappers for any column declared wider than ~15 digits of integer precision.
+- **JSON / JSONB columns**: the column type is just "some object"; the ORM type is whatever the developer wrote. A migration that widens the JSON schema on the producer side does not update the consumer type.
+- **Array columns**: Postgres arrays, MySQL JSON-as-array, SQLite comma-separated — each driver handles them differently. The consumer type `string[]` does not guarantee the wire format.
+- **Enum columns**: a migration that adds a new enum variant does not update ORM-generated TypeScript/Python enum types. Consumers will crash on unknown variants at read time.
+- **NULL vs missing**: in document stores and JSON columns, `{foo: null}` and `{}` are different. ORM typings usually conflate them.
+
+When the migration touches a column whose ORM type is declared elsewhere in the repo, read **both sides** — the migration and the ORM model — and verify they agree on runtime format, not just declared shape.
+
+---
+
 ## Backups & recovery
 
 - **Is there a backup before the migration**? For destructive changes (DROP COLUMN, DROP TABLE, data deletion), is there a verified backup within the recovery window?

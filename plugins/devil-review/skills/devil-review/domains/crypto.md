@@ -118,6 +118,37 @@ Crypto bugs are **silent, catastrophic, and auditable after the fact**. A bug th
 
 ---
 
+## Signed payload contract (producer ↔ verifier drift)
+
+Every signed payload — JWT, webhook, signed URL, SAML assertion, session cookie — is a contract between the producer (signer) and the verifier (consumer). The type signature `{ claims: { sub: string, exp: number } }` tells you nothing about the runtime format. Apply the **Runtime contract verification** step from `methodology.md` whenever a signed payload shape changes:
+
+- **Claim type drift**: the producer writes `exp` as a Unix timestamp in seconds (standard for JWT), the verifier reads it as a JavaScript `Date` constructor argument (expects milliseconds). Off by 1000x — token expires way in the future or way in the past depending on direction. Type signature says `number`; neither side is wrong in isolation.
+- **Claim rename**: the producer starts emitting `user_id` where the verifier expects `sub`. JSON parsing does not throw; `claims.sub` is `undefined` and most verifier libraries will happily accept that as "no subject claim".
+- **Algorithm string casing / aliasing**: JWT `alg: "HS256"` vs `alg: "hs256"`. Some libraries are case-insensitive, some are not. A producer library upgrade that changes the case silently breaks verification on strict libraries.
+- **Claim-shape backward compatibility**: adding a new required claim to the producer breaks existing in-flight tokens during deployment. Removing a claim from the producer leaves the verifier reading `undefined`.
+- **Signed field vs unsigned envelope**: the verifier must operate on the *signed* representation (the exact bytes that were hashed), not on the parsed / re-serialized representation. JSON canonicalization differs across libraries — parsing and re-serializing a payload before verification invalidates the signature.
+- **Webhook body vs headers**: the signature usually covers the raw request body. If middleware parses and re-serializes the body before the signature check (common in Express with `body-parser`), the bytes differ from what the producer signed. Result: verification always fails, or (worse) developer disables verification in frustration.
+- **Nonce / timestamp is part of the signature computation — or not**: the real axis is not *where* the timestamp is transmitted (most providers use a header) but whether it is included in the bytes that the HMAC/signature covers. Stripe signs `<timestamp>.<body>` — the timestamp lives in the `Stripe-Signature` header but is also hashed, so replay protection works if and only if the verifier reconstructs the same `<timestamp>.<body>` string before comparing. GitHub's `X-Hub-Signature-256` covers the raw body only — the delivery timestamp is advisory, not cryptographically bound, and replay protection must come from application-level idempotency. A diff that switches providers without updating the verifier's reconstruction logic will either always fail verification (wrong string hashed) or silently accept replays (no timestamp in the signed data). Read the provider's signing docs directly — do not infer from the library's type signature.
+
+**Read the producer's signing code, not the verifier's type signature.** The producer might be a different language, a different service, or a third-party whose source you have to find in their SDK. For JWTs specifically: read the **signing call site**, not just the claims type — the `jwt.sign(payload, secret, options)` call's `options` determines whether `exp`, `iat`, `nbf` are set automatically or must be in the payload.
+
+When you verify a signed-payload contract, record both producer and verifier locations in the finding body (e.g., "producer: `auth-service/token.rs:88` sets `exp` as `SystemTime::now() + Duration::hours(1)` serialized as seconds — verifier: `api/middleware/jwt.ts:22` does `new Date(claims.exp)` which interprets as milliseconds — off by 1000x").
+
+---
+
+## Session / auth record fanout
+
+Session and token records are frequent **Mutated record fanout** targets per `methodology.md`. A session object typically holds `access_token`, `refresh_token`, `expires_at`, `scope`, `user_id`, `device_id`, `last_seen`, `revoked_at`, `issued_at`. A diff that rotates one without the others leaves the session claiming the wrong thing:
+
+- **Rotating `access_token` without `expires_at`**: session claims new token, old expiry — either prematurely rejected or accepted past its real lifetime.
+- **Rotating `access_token` without `scope`**: the new token may have different scope than the old, but the cached `scope` claim is stale — authorization checks pass or fail incorrectly.
+- **Logging out without clearing `refresh_token`**: the access token is gone but the refresh token can mint a new one — session revocation is incomplete.
+- **Step-up auth that elevates `user_role`**: role changed but MFA-verified-at timestamp not updated, leaving derived "is this session currently MFA-verified?" checks reading stale state.
+
+Record session/token entities in `mutated_records_inspected` with `kind: store-entity` and list every persisted field, not just the ones the diff wrote.
+
+---
+
 ## Output integration
 
 `scenarios_considered` must include at least one **attacker scenario** and one **misconfiguration scenario**. Examples:

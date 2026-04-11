@@ -102,6 +102,27 @@ Mobile bugs love the seams: **app lifecycle transitions**, **permission regressi
 
 ---
 
+## Native bridge contract (cross-language FFI)
+
+Every mobile framework crosses a language boundary: React Native ↔ Objective-C/Swift/Kotlin/Java, Flutter ↔ platform channels, Capacitor plugins ↔ native code, Cordova plugins ↔ native code, Expo modules ↔ native code. The JavaScript/Dart type annotations on the bridge **do not bind** what the native side actually reads or writes. This is a canonical **Runtime contract verification** boundary per `methodology.md`.
+
+Classic bridge drift patterns to check:
+
+- **Numeric precision loss**: `Long` / `Int64` values serialized across the RN bridge become JS `number` (float64, safe up to 2^53). A native timestamp in nanoseconds, a DB row ID, or a file size over 9PB silently truncates.
+- **Null / optional / nil differences**: Swift `Optional<String>` → Objective-C `NSString *` → bridge `string | null`. The Swift code may already have nil-coalesced; the bridge may pass empty string where nil was expected.
+- **Enum serialization**: a Kotlin `enum class` serialized via `toString()` vs `ordinal()` gives different wire values. Consumers expecting one form silently misinterpret the other.
+- **Date / time formats**: `NSDate` serialized via `.timeIntervalSince1970` gives seconds-as-float; JS `Date` expects milliseconds-as-integer. Off by 1000x, commonly masked because "it's still a plausible date".
+- **Dictionary key ordering**: native `NSDictionary` / `HashMap` has no guaranteed iteration order. If the JS side assumes insertion order or alphabetical, order-dependent bugs appear only on certain runs.
+- **Bridge async semantics**: an RN native module method that *looks* synchronous may return via a promise that rejects asynchronously; early call sites treat missing return as success.
+- **Error propagation**: native exceptions → bridge rejection → JS error. The error type on each side is different; matching on `error.code` or `error.message` is platform-specific.
+- **Deprecated bridges**: RN `NativeModules.*` vs New Architecture TurboModules. Diffs that mix both against the same API can silently call the legacy path.
+
+**Always read the native implementation, not just the bridge type definition.** The TypeScript/Dart `.d.ts` / interface file describes what the bridge *claims* to return. The native source describes what it *actually* serializes. A diff that updates one side without the other leaves the contract broken.
+
+When you verify a bridge contract, record the producer location in the finding body (e.g., "producer: `ios/Modules/FileSystem.m:88` returns `NSNumber numberWithLongLong` — bridge claims `number`, consumer sees float64 truncation for values > 2^53").
+
+---
+
 ## Output integration
 
 `scenarios_considered` must include at least one **lifecycle transition** scenario and one **degraded state** scenario. Examples:

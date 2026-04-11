@@ -48,6 +48,34 @@ API bugs are rarely isolated to one endpoint. They compound at the **trust bound
 
 ---
 
+## Contract boundary (producer ↔ consumer drift)
+
+API endpoints are a runtime contract between a producer (server handler) and consumers (frontend, mobile, third parties) that compile-time types cannot enforce across the network. Apply the **Runtime contract verification** step from `methodology.md` to every request DTO and response DTO in the diff:
+
+- **Documented schema vs actual handler**: does the OpenAPI spec / GraphQL SDL / `.proto` in the repo still match what the handler actually returns? A field renamed in code but not in schema produces a silent drift; consumers generated from the schema will deserialize against the old shape.
+- **Handler return type vs framework serialization**: the handler signature says `UserDTO` but the framework's JSON serializer may include private fields, omit optional ones based on null-handling config, or flatten nested types differently than the TypeScript model suggests. Read the serializer configuration, not just the return type.
+- **Enum widening on response**: adding a new enum variant to a response field is breaking for strict consumers even if the type signature looks identical. The producer now emits values the consumer's parser rejects.
+- **OpenAPI `format` drift**: the OpenAPI spec has precise format modifiers — `format: date-time` means RFC 3339 (ISO 8601 subset with timezone), `format: date` means `YYYY-MM-DD`, `format: int64` means values up to 2^63-1. These are machine-checkable contracts. Handlers that emit naive datetimes (`Date.now().toString()`, `datetime.now().isoformat()` without timezone, epoch-millis as integers), or backends that return `int64` values serialized as JSON numbers (silently truncating above 2^53 at JS consumers), silently violate the declared format even though the JSON Schema `type: string` / `type: integer` still passes. Verify the serializer respects the declared `format`, not just the base type. For `int64`, the spec requires string serialization when consumers are JS — check whether the handler and the generated client agree.
+- **Discriminated unions across the boundary**: a sum type `{ kind: 'success', ... } | { kind: 'error', ... }` works in-process but serializes based on whatever the framework decides. Consumers may need the discriminator field in a specific name/position. Verify.
+- **Tests-as-proof does not count.** If the handler test asserts against a hand-written expected shape, that test is the consumer's mental model — not the wire format. Real verification reads the serializer output or uses contract tests (Pact, consumer-driven contracts).
+
+Record contract-drift findings with the producer location in the finding body (e.g., "producer: `routes/users.ts:42` returns `{createdAt: Date.now()}` — epoch-millis — consumer OpenAPI spec declares `string` without format").
+
+---
+
+## Mutated record fanout (within the handler)
+
+API handlers frequently mutate records — session objects, cached entities, DB rows, outgoing DTOs — where the diff updates one field but leaves sibling fields pointing at the prior lifecycle. Apply the **Mutated record fanout** step from `methodology.md` to each record the handler writes:
+
+- **Session / auth context**: when the handler rotates an access token, does it also update `expires_at`, `scope`, `issued_at`, `device_id`, `last_seen`? A rotation that updates only the token leaves the session claiming the old expiry.
+- **Cached entity invalidation**: when the handler writes to the primary store, are all cached representations (Redis, memoized, CDN) updated or evicted? A write that updates the row but leaves a denormalized counter stale is a classic fanout bug.
+- **Response DTO vs record**: when the handler builds a response DTO from a freshly-mutated record, does the DTO re-read every field, or does it copy pre-mutation values for some fields and post-mutation for others? Partial-refresh DTOs leak stale siblings to the client.
+- **Join tables / polymorphic refs**: updating one side of a relation without the other leaves stale `*_type` / `*_id` pairs.
+
+For every record written, list sibling fields in `mutated_records_inspected` — even the ones you concluded were safe.
+
+---
+
 ## Observability
 
 - **Structured logs**: does the handler log enough to debug a failure (request ID, user ID, resource ID, outcome) *without* logging secrets (tokens, passwords, full request bodies containing sensitive fields)?

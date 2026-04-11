@@ -97,6 +97,38 @@ Desktop apps cross the web↔OS boundary. Most bugs live at that boundary: **uns
 
 ---
 
+## IPC contract boundary (main ↔ renderer, Rust ↔ JS)
+
+The "IPC security" section above covers *trust* at the boundary. This section covers **contract drift** — the mismatch between what one side declares and what the other side actually sends. Apply the **Runtime contract verification** step from `methodology.md`:
+
+- **Electron `ipcMain.handle` vs renderer TypeScript types**: the renderer usually imports a shared `.d.ts` that claims `invoke<T>(channel, ...args): Promise<T>`. Nothing enforces that the main-process handler actually returns `T`. A main-process handler that returns `undefined` on the error branch silently produces `T | undefined` at the renderer call site — no type error, runtime crash later.
+- **Preload script surface vs renderer expectation**: the preload exposes via `contextBridge.exposeInMainWorld('api', {...})` — the renderer sees the shape at runtime, not as a type. Any rename or removal in preload that isn't reflected in the renderer's type declaration silently becomes `undefined` at call time.
+- **Tauri `#[tauri::command]` vs TS binding**: Tauri generates TS bindings from Rust types, but only at build time. A Rust enum that gains a variant, a struct field renamed in Rust, or a `serde` rename attribute — any of these changes the wire format without the TS side being aware until the next regen. If the build doesn't regen bindings, the drift ships.
+- **Serialization format differences**: Electron IPC uses structured clone; Tauri uses JSON. A `Date` survives structured clone as `Date`, survives JSON as ISO string. A `Map` survives structured clone; JSON flattens it to `{}`. A diff that ports code between the two frameworks often misses this.
+- **Error serialization**: throwing an `Error` in an Electron `ipcMain.handle` gives the renderer a plain object with `message` but no prototype. Matching on `err instanceof CustomError` on the renderer side is always false — the prototype didn't cross the boundary.
+- **Binary payloads**: `ArrayBuffer` / `Buffer` crossing IPC may be zero-copy (fast) or copied (memory spike). A diff that changes payload size without checking the path can introduce OOMs or latency spikes.
+- **Channel registration model (handle vs on)**: `ipcMain.handle(channel, fn)` throws `Attempted to register a second handler for '<channel>'` if the channel already has a handler — a diff that adds a duplicate surfaces as a runtime crash during dev, not a silent override. `ipcMain.on(channel, listener)`, by contrast, is **additive**: multiple listeners on the same channel all fire in registration order. A diff that adds an `on` listener to a channel that already has one produces fan-out behavior (both handlers run), which is often the hidden bug — side effects double up, counters tick twice, and the original author's invariant ("exactly one listener handles this channel") is silently violated. Check which API the diff uses and reason about the appropriate failure mode: `handle` = crash-on-duplicate, `on` = silently-additive.
+
+When you verify an IPC contract, record the producer-side file in the finding (e.g., "producer: `main/handlers/fs.ts:30` returns `undefined` on EACCES — renderer type declares `Promise<string>`, call site crashes on `.split`").
+
+---
+
+## Window and app state fanout
+
+Desktop apps persist window state across launches: position, size, maximized, monitor, zoom level, dev tools open, split-pane layout, selected workspace, active tab. These are canonical **Mutated record fanout** targets per `methodology.md` — a diff that writes one field to the window state record without updating siblings leaves the next launch in a wrong state.
+
+For every write to persisted window/app state, enumerate siblings:
+
+- **Updating `position` without `monitor`**: after the user unplugs their external monitor, saved coordinates are off-screen. Did the write update both, or only `position`?
+- **Updating `maximized: true` without clearing `width`/`height`**: on next launch, `restoreWindow` may interpret both and pick one depending on code order. The write that added `maximized` should null out the obsolete siblings.
+- **Updating `workspace` without clearing `activeTab` / `activeDocument`**: the new workspace has its own tabs; the saved `activeTab` still refers to the old workspace's tab ID, which may no longer exist.
+- **Theme / appearance settings with derived computed colors**: writing `theme: 'dark'` without recomputing the derived accent/background palette leaves siblings that were computed under the old theme.
+- **Auto-update channel change**: switching from stable to beta also needs to reset "last-checked" and "known-update-available" siblings, or the UI keeps showing an update from the wrong channel.
+
+Record window state and its siblings in `mutated_records_inspected` with `kind: store-entity`.
+
+---
+
 ## Output integration
 
 `scenarios_considered` must include at least one **cross-platform** scenario and one **update/relaunch** scenario. Examples:
