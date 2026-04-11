@@ -28,11 +28,16 @@ Domain classification:
 
 Changed symbols inspected:
 - `<symbol>` (<kind: function|component|type|schema|config>) → consumers: <file:line>, <file:line>
+  - failure-mode audit: <`<callee>` at <file:line> — <existing failure mode> — compatible with <new caller>: yes|no — <rationale>>
+  - failure-mode audit: <...>
 - `<symbol>` → consumers: <file:line>
+  - failure-mode audit: no new caller chains introduced
 - ...
 
 Mutated records inspected:
 - `<record>` (<kind: struct|store-entity|db-row|ipc-payload|api-payload|queue-message>) → siblings: <field1>, <field2>, <field3>
+  - new reader path: <preserved field `<name>` reached by new writer path `<A → B → C>` via reader at <file:line> — invariant `<X>` no longer holds>
+  - new reader path: <...>
 - `<record>` → siblings: <field1>, <field2> — note: no siblings at risk
 - ...
 
@@ -83,7 +88,9 @@ If no material findings: "No material findings. The change looks safe to ship."
 - **`classification_notes` must always be a non-empty sentence.** Even for trivial calls, write one sentence explaining how classification was decided ("all files under `routes/` and `controllers/` — straightforward api.md load" is fine). `null` and empty string are invalid. The field exists to force you to *think* about classification, not to skip it.
 - **`symbols_inspected` cannot be empty** on any review that produced findings. If you report a finding, you must have inspected at least one symbol's consumers to ground it.
 - **`symbols_inspected` may be empty only** when the diff is pure additions with no touched pre-existing symbols (net-new isolated file) — and in that case, add `no pre-existing consumers — net-new code` as a scenario line.
+- **`symbols_inspected[].failure_modes_considered` captures the callee failure-mode audit** from the "Failure-mode audit on existing callees with new callers" section in `methodology.md`. Populate it when the diff introduces a new caller chain that reaches an unchanged function, lifecycle, or handler whose existing failure-handling paths (auto-clear, auto-retry, default fallback, error suppression, timeout-driven retry) were written under the old caller's semantic assumptions. Each entry records the callee location, the new caller chain, the existing failure mode, and whether it is compatible with the new caller's semantics. **Attachment rule**: each entry attaches to the `symbols_inspected` entry for **the new caller chain's terminal symbol** — the added or modified symbol closest to the new caller's leaf. Do not attach under the unchanged callee; that would require adding `symbols_inspected` entries for symbols the diff did not touch, which violates the `symbols_inspected` non-emptiness rule ("may be empty only when the diff is pure additions with no touched pre-existing symbols"). Empty array `[]` is valid when the symbol has no new caller chains introduced by the diff — in that case, add a note to the symbol entry or a scenario line saying so. Skipping this nested field when new caller chains exist is the same class of grounding failure as an empty `symbols_inspected`.
 - **`mutated_records_inspected` is required on every review that writes to a record.** Record tracing follows the data model, not the call graph — it catches stale-sibling-field bugs that symbol tracing misses. See the "Mutated record fanout" section in `methodology.md`. Each entry lists the record and every sibling field you considered, even those you concluded were safe (mark them `no siblings at risk`). Empty array `[]` is valid only when the diff contains no record writes at all — rare, and in that case add `no record writes in diff` as a scenario line.
+- **`mutated_records_inspected[].new_reader_paths` captures the reader-path fanout audit** from the "Reader-path fanout" section in `methodology.md`. Populate it for each sibling field the diff preserves (does not write) when the diff also introduces a new writer→reader code path that reaches an existing reader of that field. Each entry records the preserved field, the new writer path, the reader location, and the invariant that no longer holds along the new path. Empty array `[]` is valid when no preserved siblings are reached by new writer paths. Do not confuse "field not written by the diff" with "field not at risk" — the reader-path fanout rule exists precisely because preserved fields can be reached through newly-introduced paths that break their implicit invariants.
 - **Deletions count as changes.** If the diff removes a symbol, trace its former callers and list them in `symbols_inspected` with a `(deleted)` suffix on the symbol name.
 - **One line per symbol, one line per scenario.** Do not prose-explain; the JSON block carries structured data for chain-consumers.
 - If a domain checklist was loaded (e.g., `domains/ui.md`), list the domain under "Scenarios considered" as `domain: <name>` alongside concrete scenarios.
@@ -101,10 +108,11 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - `1.1` — added `ship_blocker_answer`, `ship_blocker_reasoning`, `domains_loaded`, `domains_considered_dropped`, `classification_notes`. New `block` verdict value. No fields removed or retyped.
 - `1.2` — added optional `trace_log.considered_not_promoted` for observations the reviewer saw but dropped from findings (with reason). No fields removed or retyped; older consumers that do not know the field can ignore it.
 - `1.3` — added required `findings[].test_coverage` (object with `covered_by` and `why_missed`) and required `trace_log.mutated_records_inspected` (array tracking data-model fanout, parallel to `symbols_inspected` which tracks the call graph). Added `test-covers-invariant` to the allowed reasons in `considered_not_promoted`. No fields removed or retyped, but the two new required fields mean a v1.2 consumer reading a v1.3 payload will see unknown keys; strict consumers must bump.
+- `1.4` — added two optional nested fields: `symbols_inspected[].failure_modes_considered` for auditing unchanged callees against new callers, and `mutated_records_inspected[].new_reader_paths` for auditing preserved siblings against new writer→reader paths. No new top-level fields; both extensions are additive and nested inside existing arrays, so v1.3 consumers parse v1.4 payloads without error. Strict consumers must bump to read the new nested data.
 
 ```json
 {
-  "schema_version": "1.3",
+  "schema_version": "1.4",
   "verdict": "block | needs-attention | approve",
   "target": {
     "mode": "working-tree | branch | pr",
@@ -130,7 +138,17 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
       {
         "symbol": "<name>",
         "kind": "function | component | type | schema | config",
-        "consumers": ["<path/to/caller>:<line>", "..."]
+        "consumers": ["<path/to/caller>:<line>", "..."],
+        "failure_modes_considered": [
+          {
+            "callee": "<callee symbol or lifecycle name>",
+            "callee_file": "<path/to/callee>:<line-range>",
+            "new_caller": "<new caller chain, e.g. 'applyResume → restartTab'>",
+            "existing_failure_mode": "<one-sentence description of the callee's existing failure-handling path>",
+            "compatible_with_new_caller": true,
+            "rationale": "<one-sentence reason the existing failure mode is or is not compatible with the new caller's semantics>"
+          }
+        ]
       }
     ],
     "mutated_records_inspected": [
@@ -138,6 +156,14 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
         "record": "<name of struct, store entity, row, or payload>",
         "kind": "struct | store-entity | db-row | ipc-payload | api-payload | queue-message",
         "siblings_considered": ["<field1>", "<field2>", "..."],
+        "new_reader_paths": [
+          {
+            "preserved_field": "<sibling field name>",
+            "new_writer_path": "<new caller chain that now reaches this field's reader, e.g. 'applyResume → restartTab → TerminalPane.connectPty'>",
+            "existing_reader": "<path/to/reader>:<line> — <one-sentence description of what the reader does with the field>",
+            "invariant_broken": "<one-sentence description of the invariant that held along old paths but not the new one>"
+          }
+        ],
         "note": "<optional — e.g. 'no siblings at risk' or 'planFilePath stale after link'>"
       }
     ],
@@ -209,7 +235,7 @@ Followed by:
 
 ```json
 {
-  "schema_version": "1.3",
+  "schema_version": "1.4",
   "verdict": null,
   "error": "<error code: not_a_repo | gh_missing | empty_diff | shallow_clone_no_base | other>",
   "message": "<human-readable explanation>"

@@ -53,6 +53,32 @@ For each added or modified **symbol** in the diff — function, method, componen
 
 Read the surrounding code, not just the diff. The most dangerous bugs live at call boundaries — where a symbol's assumptions about its caller or callee are violated by the change.
 
+#### Failure-mode audit on existing callees with new callers (mandatory)
+
+Symbol tracing above follows the forward direction: for each new or modified symbol, who calls it? This subsection enforces the **reverse direction** for a common blind spot: *when the diff introduces a new caller of an unchanged function, lifecycle, or handler, the callee itself is safe by the "unchanged code" heuristic — but the callee's **existing** failure-handling logic may have been written for the **old** caller's semantic mode and be silently wrong for the new one.*
+
+**The bug class**: callee is fine in isolation, the diff is fine in isolation, the bug lives in the cross-product. Specifically, pre-existing `try/catch`, exit handlers, retry loops, timeout fallbacks, error boundaries, auto-clear logic, and silent-defaulting code paths were designed under **caller A's** expectations. When the diff adds **caller B** with different expectations (explicit user intent vs. implicit reopen, strict mode vs. best-effort, transactional vs. advisory), those failure paths may silently downgrade, overwrite, retry, or suppress in ways that are wrong for B.
+
+For every unchanged function, lifecycle, or handler that the diff reaches through a new caller chain, do NOT stop at "the callee is unchanged, so it's safe". Instead:
+
+1. **Read the callee's existing failure-handling paths**. Every `catch`, every exit-code branch, every fallback-to-default, every `.catch(() => {})`, every `unwrap_or_default`, every auto-retry and auto-clear. These are the callee's **implicit contract with its callers**.
+2. **For each failure path, identify which caller's semantics it was written for**. Often this is visible from comments, commit history, or simply the fact that only one caller type existed when the path was written.
+3. **Check whether the new caller's semantics are compatible with that failure path**. If the callee's failure handling is "silently clear and retry", is the new caller a best-effort path (where clear-and-retry is correct) or an explicit user-intent path (where silent clear is a trust violation)?
+4. **If the failure path is wrong for the new caller**, the fix is *not* "add another guard alongside" — see the state machine integration heuristic in the calibration rules. The fix is usually to gate the failure path on a mode flag that the caller sets, or to split the callee into two variants, or to move the failure handling up into the caller chain so each caller owns its own policy.
+
+**Specific patterns to watch for**:
+
+- **Auto-clear / auto-retry** designed for "implicit/best-effort" callers (system reopens a session on boot, framework retries a transient network call) but the new caller is **explicit user intent** (user picks this session, user explicitly triggers this action). Silent clear-and-retry of an explicit choice is a silent integrity violation — the user's decision is erased without surfacing.
+- **Default fallbacks** (home directory for empty cwd, anonymous for missing user, latest version for missing selector) that were tolerable when the field couldn't be empty in the old caller paths but the new caller path admits empty. The fallback was never wrong because the precondition always held; the new caller breaks the precondition silently.
+- **Error suppression** (`.catch(() => {})`, `unwrap_or_default`, `_ = method()`, `result || defaultValue`) that was acceptable noise from caller A (telemetry, UI refresh, cache warmer) but represents real signal loss for caller B (user-triggered save, irreversible command, audit log write).
+- **Timeout-driven retry loops** that assumed an idempotent caller; the new caller is non-idempotent (credit card charge, token mint, side-effectful RPC).
+
+**The test question**: *"was this failure-handling code written before the new caller existed?"* If yes, treat it as a foreign contract — read it with the assumption that it may be wrong for the new caller, not the other way around. The burden of proof is on the diff to show compatibility, not on the reviewer to find incompatibility.
+
+**Attachment convention**: each `failure_modes_considered` entry lives under the `symbols_inspected` entry for **the new caller chain's terminal symbol** — the added or modified symbol closest to the new caller's leaf, which the diff actually touched. Do NOT attach under the unchanged callee, because that would force `symbols_inspected` to grow entries for symbols the diff did not modify, which directly conflicts with the existing rule that `symbols_inspected` may only list diff-touched symbols (see the `symbols_inspected` rules in `output-schema.md`). The callee is already reachable from the entry via the `consumers` array, so a reader of the trace log finds the audit adjacent to the callee reference without a separate entry.
+
+Each entry should name the callee location, the new caller chain, the existing failure mode, and whether it is compatible with the new caller's semantics. See `output-schema.md` for the schema.
+
 The output **must** record every symbol you inspected in the Trace Log — skipping this step is skipping the review.
 
 ### Mutated record fanout (mandatory)
@@ -75,6 +101,31 @@ A write that looks local ("I'm just updating `agentSessionId`") often has a sile
 - **Discriminated unions / sum types / tagged enums**: enumerate only the fields of the **variant actually written** by the diff. Other variants' fields are not siblings (they don't exist on the runtime object at that moment). If the diff writes the discriminator itself (e.g., changes `kind` from `'agent'` to `'terminal'`), the fields of the *outgoing* variant become stale and must all be cleared — list them as siblings of the discriminator write.
 
 Record your findings in the Trace Log field `mutated_records_inspected` — one entry per record, listing every sibling field you considered. If you inspect a record and conclude no sibling is at risk, list it anyway with the note `no siblings at risk`. An empty `mutated_records_inspected` means you skipped this step.
+
+### Reader-path fanout (mandatory for preserved siblings)
+
+Mutated record fanout above answers the writer-side question: *for the fields this diff writes, what sibling fields are left inconsistent?* This subsection answers the **reader-side dual**: *for the sibling fields this diff preserves, does the diff open a new code path that reaches an existing reader?*
+
+**The bug class**: writer preserves a field (correctly, per the fanout audit), reader is unchanged, but the diff introduces a new path between writer and reader that breaks an invariant neither side is aware of. Writer-side fanout sees only siblings of the written fields and misses this. Symbol tracing sees only direct callers of new symbols and also misses it — the reader is already being called, just from a new path. The bug lives in the cross-product of "preserved state" + "new writer→reader path" + "unchanged reader's assumptions about which paths could reach it".
+
+For every sibling field you classified as **preserved** in the mutated record fanout, run this additional check:
+
+1. **Grep for readers** of the preserved field — templates, selectors, computed properties, destructured reads, direct property access.
+2. For each reader, **ask what paths currently reach it**. The reader's correctness depends on invariants that hold along the paths that existed before the diff.
+3. **Identify new paths the diff creates to this reader**. A new caller of an existing function, a new lifecycle trigger (restart, remount, refresh, respawn), a new action that ends in the same reducer, a new route that hits the same handler — each is a new path.
+4. **For each new path, check whether the reader's invariants still hold**. The old write path may have guaranteed "this field is never empty when the reader runs" or "this field is always fresh" or "this field's content came from the same source as that field's content". Does the new path preserve the same guarantee?
+5. **If any invariant does not transfer**, the preserved field is not safe — the fix is either to re-enforce the invariant at the new path's entry (compute/validate before calling into the reader), or to change the reader to tolerate the new path's weaker guarantee.
+
+**The test**: *"could the reader be called with a state of the preserved field that was unreachable before this diff?"* If yes, you have a reader-path fanout bug even though the field itself was correctly preserved.
+
+**Common new-path signatures to look for**:
+
+- **Restart / remount / respawn lifecycle**: the old path was "mount with fresh cwd from create flow"; the new path is "remount with preserved cwd from restart flow". If the preserved cwd could be empty from an older code path, remount now re-reads empty.
+- **Restore-from-persistence**: the old path wrote fresh values; the new path restores from disk where older versions may have written different (or missing) values.
+- **Explicit user intent reaching implicit reopen code**: the old caller was "system reopens session on boot"; the new caller is "user picks a session from a list". Both end at the same reducer but carry different semantic contracts.
+- **Retry / backoff loop**: the original call path validated inputs; the new retry path reuses the validated result but runs under state that may have drifted since validation.
+
+Record findings under the record's `mutated_records_inspected` entry as `new_reader_paths: [...]` — each entry should name the preserved field, the new writer path, the reader location, and the invariant that does not transfer. See `output-schema.md` for the schema.
 
 ### Runtime contract verification (cross-boundary types)
 
