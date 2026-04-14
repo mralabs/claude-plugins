@@ -37,6 +37,23 @@ Each fixture is a self-contained directory with four files:
    - **Diff present AND some assertion now fails** → real regression. Fix the prompt, re-run, snapshot.
    - **No diff, but an assertion now fails** → the fixture's expected behavior changed deliberately. Update `expected-findings.md` first, then re-run and snapshot.
 
+## When to run fixtures
+
+**Trigger:** a commit edits any of the following files. Run the affected fixtures before the commit lands (or at minimum before the containing shipping series is pushed).
+
+- `plugins/devil-review/skills/devil-review/SKILL.md`
+- `plugins/devil-review/skills/devil-review/methodology.md`
+- `plugins/devil-review/skills/devil-review/output-schema.md`
+- `plugins/devil-review/skills/devil-review/domains/*.md`
+
+**Do NOT run for:** manifest-only edits (`plugin.json`, `marketplace.json`), README changes, plan-doc edits under `docs/`, or changes to the fixtures themselves. These do not touch the prompt surface and cannot regress skill behavior.
+
+**Narrow edits:** when the edit is narrow (e.g., a single-domain change in `domains/api.md`), you may run only the fixtures exercising that surface. When in doubt, run all three — the manual cost is ~5 minutes each and the saving of a missed regression is much higher.
+
+**First-run capture:** if `last-snapshot.md` is absent for a fixture you are running, capture the plugin's full output into that file on the first successful run and commit it alongside the triggering edit. Subsequent runs diff against the snapshot.
+
+**Failure handling:** if a fixture fails assertions, do not update `last-snapshot.md`. Either fix the skill (intentional regression exposed) or fix the fixture (expected behavior genuinely shifted). The snapshot is only updated after a clean pass, never to paper over a failure.
+
 ## Fixture catalog
 
 - `01-guard-cluster-refactor/` — exercises Phase 2.5 rules (lift hierarchy, patch-chain detection, `refactor-recommended` verdict, `lift_considered` schema, `finding_type: design_debt`). A session-state module with three accumulated boolean-guard flags adds a fourth. Expected: patch-chain signal fires, verdict `refactor-recommended`, design_debt finding with a writer-lift recommendation and all-three-lifts evaluated.
