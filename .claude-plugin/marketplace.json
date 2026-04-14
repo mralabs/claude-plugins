@@ -11,7 +11,7 @@
     {
       "name": "devil-review",
       "description": "The devil is in the details — adversarial code review that finds the subtle bugs, race conditions, and violated invariants hiding in your diff.",
-      "version": "1.10.2",
+      "version": "1.11.0",
       "author": {
         "name": "mralabs"
       },

@@ -30,9 +30,21 @@ Every diff has dark corners — the edge case nobody tested, the race condition 
 # Combine flags
 /devil-review --scope branch --base develop concurrency handling
 
-# Feed a prior devil-review output for patch-chain detection on a second round
-/devil-review --prior-review ./reviews/round-1.md
+# Second round on the same diff — prior review auto-detected, no flag needed
+/devil-review
 ```
+
+Every successful run auto-writes its output to `.claude/devil-review/<session-id>/<target>.md`, scoped by Claude Code session ID and review target (working-tree, branch, or PR). A subsequent `/devil-review` on the same target in the same session automatically detects and loads that snapshot, cross-references its findings against the current round, and fires the `prior-review-overlap` signal when the overlap crosses the patch-chain threshold — which can shift the verdict toward `refactor-recommended`. No flag, no filename management. Session scoping means stale reviews from prior sessions do not contaminate today's work.
+
+## Setup
+
+Add this line to your project's `.gitignore` so review snapshots stay local:
+
+```
+.claude/devil-review/
+```
+
+One-time setup. Without this line, snapshots get tracked in git — which is usually not what you want since they are ephemeral local state, not team-shared config.
 
 ## How it works
 
@@ -86,7 +98,7 @@ Findings carry a `finding_type` that places each one into `correctness | design_
 - **Test-trace per finding** — every reported finding must answer "why didn't existing tests catch this?" with `no-test`, `mock-bypass`, or `missing-assertion`. Findings without a defensible answer are dropped. Catches mocked tests that exercise only the consumer's mental model of the contract, not the producer.
 - **Generalization test** — every finding is reframed at the root invariant before reporting. Narrow framings ("crashed-tab edge case") are widened to the underlying invariant ("any session switch with a live process") so the fix matches the actual blast radius rather than the most extreme example.
 - **Prior-reviewer stance** — recommendations from earlier reviews (previous devil-review runs, codex review, PR comments) are reviewable artifacts, not architectural decisions. A change made in response to earlier feedback gets *more* scrutiny, not less, because over-correction is the default failure mode when targeting a narrow critique.
-- **Patch-chain detection** — when the same diff is reviewed multiple times, the skill scans recent git history for defensive-commit clusters (`fix:`, `guard:`, `prevent:`, `workaround:`, `hotfix:` prefixes) on the reviewed files, and — when `--prior-review <file>` is supplied — cross-references current candidate findings against the prior review's findings. If the signals fire on a genuine patch chain (same root cause repeatedly guarded, not different roots on the same hotspot), the verdict shifts to `refactor-recommended` and the recommendation is to collapse the guard cluster structurally rather than add another guard. Catches the failure mode where each new review round chases edge cases introduced by the previous round's guards.
+- **Patch-chain detection** — when the same diff is reviewed multiple times, the skill scans recent git history for defensive-commit clusters (`fix:`, `guard:`, `prevent:`, `workaround:`, `hotfix:` prefixes) on the reviewed files, and auto-loads the previous run's output from `.claude/devil-review/<session-id>/<target>.md` (written by every successful run, session- and target-scoped) to cross-reference current candidate findings against the prior round. No flag needed — the skill always checks, and if a prior file exists it is used. If the signals fire on a genuine patch chain (same root cause repeatedly guarded, not different roots on the same hotspot), the verdict shifts to `refactor-recommended` and the recommendation is to collapse the guard cluster structurally rather than add another guard. Catches the failure mode where each new review round chases edge cases introduced by the previous round's guards.
 
 **Domain-specific checklists** — loaded automatically based on what files the diff touches. A single review can load several:
 

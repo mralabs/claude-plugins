@@ -3,7 +3,7 @@ name: devil-review
 description: "The devil is in the details — adversarial review that finds what's hiding in your diff"
 argument-hint: "[--scope auto|working-tree|branch|pr] [--base <ref>] [--pr <number>] [focus text]"
 disable-model-invocation: true
-allowed-tools: ["Read", "Glob", "Grep", "Bash(git:*)", "Bash(gh:*)"]
+allowed-tools: ["Read", "Write", "Glob", "Grep", "Bash(git:*)", "Bash(gh:*)"]
 context: fork
 ---
 
@@ -21,8 +21,9 @@ Parse the raw arguments:
 - `--scope <auto|working-tree|branch|pr>` — review target scope (default: `auto`)
 - `--base <ref>` — explicit base ref for branch diff
 - `--pr <number>` — GitHub PR number to review (implies `--scope pr`)
-- `--prior-review <file-path>` — path to a previous devil-review markdown output covering this same diff. When supplied, patch-chain detection in Step 3b reads it, cross-references the current review's candidate findings against the prior review's findings and `considered_not_promoted` entries, and emits a `prior-review-overlap` signal when the overlap crosses the threshold. The file must be a devil-review output with an intact JSON fence (schema_version required); non-matching or unreadable files are rejected and the flag is treated as absent. **Observability requirement (v1.10.1):** whenever `--prior-review` is supplied, the reviewer **must** emit a `scenarios_considered` line of the form `prior-review ingestion: <status>` where `<status>` is exactly one of `loaded`, `rejected-no-schema-version`, `rejected-malformed-json`, or `rejected-file-not-found`. Silent drops are not permitted — the user who supplied the flag is entitled to a visible signal that the flag was either honored or rejected, with the reason. This is the observable counterpart of the trust-but-verify rule at the prior-review boundary.
 - Everything else after flags → `FOCUS_TEXT`
+
+**No `--prior` flag.** Prior-review auto-detection is handled inside Step 3b — the skill always looks for a snapshot at `.claude/devil-review/${CLAUDE_SESSION_ID}/<target-slug>.md` (session-scoped, target-scoped — see Step 8 for slug rules) and uses it for patch-chain detection when present. Absent prior files produce a fresh review. Users do not control this via a flag; the behavior is zero-config. To force a fresh review on a target that already has a snapshot, delete the corresponding file.
 
 ---
 
@@ -129,7 +130,9 @@ Where `<N>` is `5` for working-tree and branch modes, `10` for PR mode (PRs accu
 
 1. **Fix-prefix cluster.** Among the last 4 commits that touch any reviewed file, ≥50% (i.e., ≥2 of 4) have messages prefixed with any of: `fix:`, `guard:`, `prevent:`, `patch:`, `workaround:`, `hotfix:` (case-insensitive; conventional-commits scope suffix like `fix(auth):` still counts). The cluster is "same surface, repeatedly defensive".
 2. **Same-file hotspot.** A single reviewed file appears in ≥3 of the last 5 commits (working-tree / branch mode) or ≥5 of the last 10 commits (PR mode). File frequency alone is not enough without a defensive-prefix cluster, but combined with signal 1 it strengthens the signal — record both when both fire.
-3. **Prior-review overlap** (only when `--prior-review <file-path>` is supplied). Load the prior review file, extract its findings array and `considered_not_promoted` array via its JSON fence (reject with warning and treat `--prior-review` as absent if no `schema_version` field is present). If ≥50% of the current review's candidate findings reference file locations that also appeared in the prior review's findings or `considered_not_promoted`, the signal fires. Also cross-reference each current finding's `file:line` against the prior review's entries and annotate any overlaps in the finding body: "This location also appeared in the prior review as finding #N" — this annotation is body-only, not a new schema field.
+3. **Prior-review overlap** (auto-detected — no flag required). Compute the **target slug** for the current review (see Step 8 for the slug rules) and resolve the prior-review path to `.claude/devil-review/${CLAUDE_SESSION_ID}/<target-slug>.md`. Session and target scoping ensure that stale reviews from unrelated sessions or different targets never bleed in. If the file exists, load it; extract its findings array and `considered_not_promoted` array via its JSON fence (treat the load as absent if no `schema_version` field is present, the file is malformed, or the file does not exist — emit the corresponding status per the observability rule below). If ≥50% of the current review's candidate findings reference file locations that also appeared in the prior review's findings or `considered_not_promoted`, the signal fires. Also cross-reference each current finding's `file:line` against the prior review's entries and annotate any overlaps in the finding body: "This location also appeared in the prior review as finding #N" — this annotation is body-only, not a new schema field.
+
+**Observability requirement.** The skill **must always** emit a `scenarios_considered` line of the form `prior-review ingestion: <status>` on every non-error run, where `<status>` is exactly one of `loaded`, `absent` (file does not exist — fresh run), `rejected-no-schema-version`, or `rejected-malformed-json`. This line makes the auto-detect outcome visible; silent drops are not permitted, and neither is silently running without a prior-check signal.
 
 ### Theme-vs-root guard (reviewer-gated)
 
@@ -235,7 +238,7 @@ Do not start writing output until you have:
 - classified every finding into one of the four `finding_type` values (`correctness`, `design_debt`, `best_practice_violation`, `architectural_smell`) — a finding without `finding_type` is a grounding failure per schema v1.6
 - populated `lift_considered` on every finding whose recommendation is a runtime guard, OR named a system boundary in the finding body that explains why a lift is not the right primitive — per the Lift hierarchy rule and the v1.10.1 guard-legitimacy condition in `output-schema.md`
 - populated `trace_log.patch_chain_risk` with a non-empty `theme_assessment` whenever any Step 3b signal fired, regardless of the final `detected` value — the reviewer's theme-vs-root judgment is auditable
-- emitted a `scenarios_considered` line `prior-review ingestion: <status>` if `--prior-review` was supplied in Step 1, regardless of acceptance outcome — silent drops of the flag are not permitted
+- emitted a `scenarios_considered` line `prior-review ingestion: <status>` on every non-error run — the auto-detect outcome (loaded, absent, or rejected with reason) must always be visible per the observability rule in Step 3b
 - verified every required field listed in `output-schema.md` JSON rules is present — this is the backstop for future schema additions; when a new required field lands in a later version, the checklist does not need a per-field bullet if this backstop bullet catches it
 
 ---
@@ -247,3 +250,23 @@ Read **`output-schema.md`** (sibling file in this skill directory) and produce o
 The Trace Log is non-negotiable. If you reported findings without a populated trace log, you skipped the grounding step — go back, trace, and try again.
 
 If the review cannot run (not a repo, `gh` missing, empty diff, shallow clone without base), emit the error output format from `output-schema.md` instead. Do not fabricate a review.
+
+## Step 8 — Auto-save for future runs
+
+After emitting the output in Step 7, use the Write tool to write the **complete emitted output** (markdown section + JSON fence, verbatim) to:
+
+```
+.claude/devil-review/${CLAUDE_SESSION_ID}/<target-slug>.md
+```
+
+`${CLAUDE_SESSION_ID}` is substituted by the runtime. Create the directory tree if it does not exist.
+
+**Target slug** (deterministic from Step 2's resolved target):
+
+- Working-tree mode → `working-tree`
+- Branch mode → `branch-<base-ref>` with forward slashes and other non-`[A-Za-z0-9._-]` chars replaced by hyphens. Example: `feature/auth` → `branch-feature-auth`.
+- PR mode → `pr-<number>`. Example: `pr-42`.
+
+Overwrite unconditionally — each `(session, target)` pair holds one file. Different targets never collide within a session; different sessions never collide at all. Step 3b's auto-detect reads this same path on the next run.
+
+**Skip** when the review ended in an error output (verdict `null`). No scenarios_considered line is emitted for the write — the read side (Step 3b ingestion status) already carries the observability. `.gitignore` setup is covered in the plugin README.
