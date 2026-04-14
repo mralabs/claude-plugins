@@ -80,6 +80,10 @@ If no material findings: "No material findings. The change looks safe to ship."
 - ...
 ```
 
+### Recommendation field guidance
+
+- **When the recommendation is a runtime guard, the body must name why type, writer, and ordering lifts were rejected** — per the **Lift hierarchy for defensive recommendations** rule in `methodology.md`. "The codebase already uses guards here" is not a rejection; name the specific constraint blocking each lift (producer not modifiable, call graph makes a single writer impossible, ordering change would require framework-level plumbing the diff cannot touch, etc.). This is prose discipline on the existing `recommendation` field, not a new schema field — downstream consumers see the same shape, just a more structured body when a guard is recommended.
+
 ### Trace Log rules (non-negotiable)
 
 - **Ship-blocker question must be answered** whenever verdict is `block` or `needs-attention`. Both `ship_blocker_answer` and `ship_blocker_reasoning` (in the JSON) / both lines (in the markdown) are mandatory. An `approve` verdict may omit the ship-blocker lines — but if you include them, they must read `no`.
