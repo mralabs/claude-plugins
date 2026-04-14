@@ -195,6 +195,70 @@ load_priority: high
 
 ---
 
+## Item 6 — Structured prior-review attribution
+
+**Goal:** Turn the prose attribution that prior-review-overlap currently produces into a machine-readable shape, so downstream automation (commit bots, PR decorators, dashboards) can reason about "which findings resolved, which carried over, which are new drift" without parsing narrative text.
+
+**Why it matters (observed, not speculative):** Saha testinde prior-review flag'iyle çalıştırılan bir review explicit olarak "prior findings resolved, new findings are introduced by the fix or already existed — not a patch-chain pattern" framing'i üretti ve verdict'i `refactor-recommended`'e eskalasyondan dampened. Attribution bu noktada en büyük değerdi — bulguyu körlemesine verdict'e çevirmek yerine "bunlar gerçekten yeni mi yoksa prior-işaret mi" diye gating. Ama bu bilgi şu anda **prose** olarak yaşıyor (`theme_assessment`, finding body annotation "This location also appeared in the prior review as finding #N"). Automation consumer onu parse edemez.
+
+**Non-goals:**
+- Otomatik resolution detection (LLM reviewer'ın görsel kararı yerine heuristic). Reviewer-gated kalacak.
+- Prior-review dependency'yi zorunlu yapmak. Auto-detect miss durumunda alan omittable.
+- Multi-round accumulation (chain_depth round counter). Single-step karşılaştırma korunacak — see methodology.md "Scope: single-step, single-session" rule.
+
+**Shape (target v1.12.0 minor, schema v1.8):**
+
+Finding-level, optional:
+```json
+{
+  "severity": "medium",
+  "finding_type": "design_debt",
+  "prior_relation": {
+    "category": "carries-over | resolved | new-drift-from-fix | pre-existing-orthogonal",
+    "prior_finding_ref": "<prior finding title quoted verbatim, or null>"
+  }
+}
+```
+
+Top-level `trace_log`, optional (only when prior was loaded):
+```json
+"prior_review_summary": {
+  "total_in_prior": 3,
+  "resolved": 2,
+  "still_open": 0,
+  "new_drift_introduced": 1,
+  "pre_existing_unrelated": 0
+}
+```
+
+**Verdict derivation integration:** Extend rule 3 with a new clause (c) — "chain closing if `resolved` ≥ `still_open + new_drift_introduced`, do not escalate to `refactor-recommended` even if `design_debt_severity` is high". This operationalizes the dampening the reviewer performed manually in the saha test.
+
+**Methodology addition:** new subsection under "Patch-chain detection" titled "Prior-relation classification" with the four categories decision tree:
+- `carries-over` — same invariant violation present in both prior and current state (fix did not address, or addressed partially)
+- `resolved` — prior finding's location is no longer a finding in current state (fix worked)
+- `new-drift-from-fix` — finding at a location introduced or changed by the prior fixes (fix opened a new foot-gun)
+- `pre-existing-orthogonal` — finding at a location the prior review did not reach AND the prior fix did not touch (existed in the code before the fix, reviewer just missed it then)
+
+**Backward compatibility:**
+- Fields are optional. v1.7 consumers parse v1.8 payloads without error.
+- Absence of `prior_relation` on a finding = same as pre-v1.8 behavior (no attribution).
+- `prior_review_summary` omitted when no prior was loaded (which is already the case for the fields that depend on it).
+
+**Estimated effort:** 2–3 hours. Methodology subsection, schema fields, JSON rules, verdict derivation rule 3 update, README prose for new fields, semver rationale.
+
+**Dependency:** None. Shippable alongside or after Item 2/3/4/5 independently.
+
+**Trigger to activate:**
+- First automation consumer appears (commit bot writing "resolves: prior#2", PR decorator showing resolution counts, dashboard aggregating across reviews)
+- OR a concrete saha test where prose attribution was insufficient and the reviewer needed structured fields to reason
+- OR user reports "I can't tell at a glance which findings are the real new bugs vs residual drift"
+
+Until one of these fires, prose attribution is considered sufficient per the existing saha test ("mekanizma iş görüyor").
+
+**Risk:** Low–medium. New emission burden on every finding when prior loaded (one more object per finding). LLM classification of the four categories is ambiguous in edge cases (e.g., "fix touched this line and a new issue appeared — is it `new-drift-from-fix` or `pre-existing-orthogonal` the fix didn't cause but highlighted?"). Decision tree above covers the common cases; edge cases fall back to `pre-existing-orthogonal` per the "when in doubt, drop severity" spirit.
+
+---
+
 ## Sequencing recommendation
 
 Not a fixed order — pick based on observed need.
@@ -204,6 +268,7 @@ Not a fixed order — pick based on observed need.
 3. **If Item 1 is done and output still feels shallow: Item 3 (agent test).** Uses fixtures from Item 1, so strictly downstream.
 4. **Only on real demand: Item 4 (deferred domains).**
 5. **Only at scale: Item 5 (dynamic discovery).**
+6. **Only when automation consumer appears or prose attribution proves insufficient: Item 6 (structured prior-review attribution).**
 
 **Do not batch.** Each item is independent and shippable alone. Batching increases risk and obscures which change caused what behavior shift.
 
@@ -218,8 +283,9 @@ Phase 3 is never strictly "done" — it's a menu, not a milestone. But we can ca
 - [ ] The `agent:` line in SKILL.md is either justified by a test or removed (Item 3)
 - [ ] At least one deferred domain has been added OR explicitly declared not needed (Item 4)
 - [ ] Dynamic discovery has been implemented OR explicitly declared premature at current scale (Item 5)
+- [ ] Structured prior-review attribution shipped OR a saha test explicitly shows prose attribution remains sufficient (Item 6)
 
-All five can remain open indefinitely without blocking any user-facing feature. That is the point of Phase 3.
+All six can remain open indefinitely without blocking any user-facing feature. That is the point of Phase 3.
 
 ---
 
@@ -227,3 +293,4 @@ All five can remain open indefinitely without blocking any user-facing feature. 
 
 - **2026-04-11** — Initial spec written. Plugin at v1.3.2. Phase 3 still unstarted.
 - **2026-04-14** — Item 1 (fixtures regression harness) shipped. Trigger: Phase 2.5 shipping (v1.8.1 + v1.9.0 + v1.10.0) produced 3 `no-test` findings in self-review, moving fixtures from "optional menu item" to "blocker on next prompt edit". Shipped 3 fixtures (guard-cluster-refactor, clean-refactor, unsafe-migration) with expected-findings assertions; no last-snapshot.md yet (captured on first real run). Items 2–5 remain unstarted per "real demand only" policy.
+- **2026-04-14 (same-day)** — Item 6 (structured prior-review attribution) added to the menu. Trigger: first saha test of `--prior-review` flag (pre-v1.11.0 auto-detect) in a real review produced explicit attribution language ("prior findings resolved, new findings introduced by fix, not a patch-chain pattern") and dampened an otherwise likely `refactor-recommended` verdict to `needs-attention`. Reviewer identified the mechanism as the single most valuable part of the patch-chain detection feature, but noted the attribution is emitted as prose (in `theme_assessment` and finding body annotations) rather than structured fields. Item 6 spec captures the fields and verdict-derivation integration for when automation consumers arrive or prose attribution proves insufficient. Unstarted; gated on observable demand.
