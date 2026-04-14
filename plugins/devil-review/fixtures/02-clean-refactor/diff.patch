@@ -1,0 +1,41 @@
+diff --git a/src/utils.ts b/src/utils.ts
+index aaaaaaa..bbbbbbb 100644
+--- a/src/utils.ts
++++ b/src/utils.ts
+@@ -1,7 +1,7 @@
+ import { padStart } from 'lodash';
+
+-export function formatDate(d: Date): string {
++export function formatDateISO(d: Date): string {
+   return d.toISOString().split('T')[0];
+ }
+
+ export function parseDate(s: string): Date {
+diff --git a/src/user.ts b/src/user.ts
+index ccccccc..ddddddd 100644
+--- a/src/user.ts
++++ b/src/user.ts
+@@ -1,9 +1,9 @@
+-import { formatDate, parseDate } from './utils';
++import { formatDateISO, parseDate } from './utils';
+
+ export function userCreatedLabel(user: { createdAt: Date }): string {
+-  return `Created on ${formatDate(user.createdAt)}`;
++  return `Created on ${formatDateISO(user.createdAt)}`;
+ }
+
+ export function userCreatedAtDate(user: { createdAt: string }): Date {
+   return parseDate(user.createdAt);
+ }
+diff --git a/src/order.ts b/src/order.ts
+index eeeeeee..fffffff 100644
+--- a/src/order.ts
++++ b/src/order.ts
+@@ -1,7 +1,7 @@
+-import { formatDate } from './utils';
++import { formatDateISO } from './utils';
+
+ export function orderReceipt(order: { placedAt: Date; total: number }): string {
+-  return `Order placed ${formatDate(order.placedAt)} — total $${order.total}`;
++  return `Order placed ${formatDateISO(order.placedAt)} — total $${order.total}`;
+ }

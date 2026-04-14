@@ -1,14 +1,30 @@
 # devil-review — Phase 3 Plan
 
-**Status:** Not started (as of 2026-04-11)
-**Plugin version at time of writing:** v1.3.2
+**Status:** Item 1 shipped 2026-04-14 (plugin v1.10.0). Items 2–5 still unstarted.
+**Plugin version at time of writing:** v1.3.2 (initial spec); v1.10.0 (Item 1 shipping revision)
 **Scope:** Everything deferred out of v1.3.x. Phase 1 (architecture) and Phase 2 (content) landed in v1.3.0; patches in v1.3.1/v1.3.2. Phase 3 is the "durability & maturation" bucket — optional, pickable à la carte after real usage feedback.
 
 > **Guiding principle:** Don't design for hypothetical requirements. Every Phase 3 item is justified against an observed gap, not a theoretical one. Use the skill in real PRs first; let friction dictate priority.
 
 ---
 
-## Item 1 — `fixtures/` regression harness
+## Item 1 — `fixtures/` regression harness ✅ SHIPPED 2026-04-14
+
+**Shipping notes:** Landed in the `feat(devil-review): add fixtures regression harness` commit. Three fixtures created under `plugins/devil-review/fixtures/`:
+- `01-guard-cluster-refactor/` — exercises Phase 2.5 features (lift hierarchy, patch-chain detection, `refactor-recommended` verdict, `finding_type: design_debt`, `lift_considered` schema)
+- `02-clean-refactor/` — exercises the absence of findings; a symbol rename with all callers updated must return `verdict: approve` with empty `findings` and non-empty Trace Log
+- `03-unsafe-migration/` — exercises `domains/data.md` + `verdict: block` path; NOT NULL column on large existing table without default
+
+**Known gaps after shipping:**
+- `last-snapshot.md` files are intentionally absent on initial fixture creation; the first real skill run captures them.
+- No automated runner; the harness is manual per the plan's original decision.
+- The `01-guard-cluster-refactor` fixture's expected-findings.md deliberately matches the v1.10.1 (post-fix) behavior for `lift_considered` semantics, not the v1.10.0 behavior. This fixture would fail against v1.10.0 output — which is the entire point of having fixtures. Running it against v1.10.0 surfaces the Finding 1 schema inconsistency concretely.
+
+**Shipping trigger:** Phase 2.5 shipping landed v1.8.1 + v1.9.0 + v1.10.0 across three commits, and an adversarial self-review found 3 findings (all `no-test`). The fixture harness moved from "optional, pickable after real usage" to "blocker on the next prompt edit" because schema evolution without regression tests was visibly producing the same class of bugs repeatedly. This is the "real usage" signal the plan specified.
+
+---
+
+## Item 1 — Original spec (for reference)
 
 **Goal:** Detect prompt-change regressions. When SKILL.md, methodology.md, output-schema.md, or any `domains/*.md` is edited, we want a disciplined way to answer "did this make the skill better, or did it silently break a known-good case?"
 
@@ -197,7 +213,7 @@ Not a fixed order — pick based on observed need.
 
 Phase 3 is never strictly "done" — it's a menu, not a milestone. But we can call it materially complete when:
 
-- [ ] At least one fixture exists and has caught at least one regression in practice (Item 1)
+- [x] At least one fixture exists and has caught at least one regression in practice (Item 1) — shipped 2026-04-14 with 3 fixtures; the `01-guard-cluster-refactor` fixture deliberately asserts the v1.10.1-post-fix behavior so running it against v1.10.0 exposes the Finding 1 lift_considered schema inconsistency
 - [ ] README has a worked good/bad example (Item 2)
 - [ ] The `agent:` line in SKILL.md is either justified by a test or removed (Item 3)
 - [ ] At least one deferred domain has been added OR explicitly declared not needed (Item 4)
@@ -210,3 +226,4 @@ All five can remain open indefinitely without blocking any user-facing feature. 
 ## Revision log
 
 - **2026-04-11** — Initial spec written. Plugin at v1.3.2. Phase 3 still unstarted.
+- **2026-04-14** — Item 1 (fixtures regression harness) shipped. Trigger: Phase 2.5 shipping (v1.8.1 + v1.9.0 + v1.10.0) produced 3 `no-test` findings in self-review, moving fixtures from "optional menu item" to "blocker on next prompt edit". Shipped 3 fixtures (guard-cluster-refactor, clean-refactor, unsafe-migration) with expected-findings assertions; no last-snapshot.md yet (captured on first real run). Items 2–5 remain unstarted per "real demand only" policy.

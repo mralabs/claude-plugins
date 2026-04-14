@@ -1,0 +1,50 @@
+# Fixture 01 — Expected findings
+
+Loose must-contain / must-NOT-contain assertions. Verified by a human after each run. Not a diff-match.
+
+## Must contain
+
+### Verdict and axes
+
+- `verdict: refactor-recommended` — this is the whole point of the fixture. The diff is not a correctness ship-blocker (the `loading` flag does prevent the race it targets), but it adds the fourth guard to a structure that needed a refactor three rounds ago.
+- `design_debt_severity: high` or `critical` — rolls up from the guard-cluster finding.
+- `correctness_severity: none` or `low` — the diff itself is not a correctness bug.
+
+### Patch-chain detection
+
+- `trace_log.patch_chain_risk.detected: true`
+- `trace_log.patch_chain_risk.signals_fired` contains at least `fix-prefix-cluster`
+- `trace_log.patch_chain_risk.chain_depth` ≥ 2 (last four commits on `src/session.ts` have ≥2 defensive-prefix matches: `fix:`, `guard:`, `patch:`, `fix:`)
+- `trace_log.patch_chain_risk.theme_assessment` is non-empty and names the common root cause (concurrent-restore state machine fragmented across multiple flags)
+- `trace_log.patch_chain_risk.recommendation` recommends structural refactor, not another guard
+
+### Findings
+
+- At least one finding with `finding_type: design_debt` — the guard cluster itself is the finding.
+- The design_debt finding's `recommendation` names **writer-lift** (single state machine / single-writer lock / single state enum) as the preferred consolidation, not "add another guard" or "rename the flags".
+- The design_debt finding's `lift_considered` object is populated. After v1.10.1, the following must hold for the guard-on-fourth-flag framing:
+  - `type_lift.viable: true` with a rationale referencing a state enum / discriminated union
+  - `writer_lift.viable: true` with a rationale referencing single-writer lock / state machine consolidation
+  - `ordering_lift.viable: false` with a rationale referencing that ordering does not dissolve the cluster
+  Under v1.10.0 (pre-fix) schema, the guard-recommendation rule is weaker; this fixture's assertion deliberately matches the fixed (v1.10.1+) behavior.
+- The finding body names the three prior guards as evidence of the patch-chain pattern.
+
+### Trace Log
+
+- `trace_log.symbols_inspected` contains `SessionManager.restoreSession` (or the class `SessionManager`) with consumers traced
+- `trace_log.mutated_records_inspected` contains the `SessionManager` record with siblings `restoring`, `sessionRestored`, `dirty`, `loading` enumerated
+- `trace_log.ship_blocker_answer: "no"` — design debt does not block ship on its own
+- `trace_log.classification_notes` is a non-empty sentence
+
+## Must NOT contain
+
+- `verdict: approve` — the diff has material design debt, not zero findings
+- `verdict: block` — no correctness ship-blocker is present; inflating to block would miscategorize
+- `verdict: needs-attention` — this is not a "fix in place and iterate" situation; the fixture exists to verify `refactor-recommended` is reachable
+- Any finding that says "rename the flags" or "add a comment explaining the flags" — these are anti-pattern recommendations
+- A guard recommendation (for the current diff's `loading` flag) with `lift_considered` showing all three lifts viable — per v1.10.1 rule, this would be schema-inconsistent
+- An `approve` verdict with populated `patch_chain_risk` — verdict and patch-chain state must be self-consistent
+
+## Notes
+
+This fixture is the primary regression target for Phase 2.5 shipping (v1.8.1 + v1.9.0 + v1.10.0) and the v1.10.1 patch that follows. If this fixture ever returns `verdict: needs-attention` on future prompt edits, the refactor-recommended path has regressed.

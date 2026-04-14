@@ -1,0 +1,21 @@
+diff --git a/migrations/0042_add_tenant_id.sql b/migrations/0042_add_tenant_id.sql
+new file mode 100644
+index 0000000..abc1234
+--- /dev/null
++++ b/migrations/0042_add_tenant_id.sql
+@@ -0,0 +1,5 @@
++-- Add tenant isolation to users table
++-- Rollout: Friday deploy, coordinated with application code change
++
++ALTER TABLE users
++  ADD COLUMN tenant_id UUID NOT NULL;
+diff --git a/src/models/user.ts b/src/models/user.ts
+index 1111111..2222222 100644
+--- a/src/models/user.ts
++++ b/src/models/user.ts
+@@ -3,6 +3,7 @@ export interface User {
+   id: string;
+   email: string;
+   createdAt: Date;
++  tenantId: string;
+ }

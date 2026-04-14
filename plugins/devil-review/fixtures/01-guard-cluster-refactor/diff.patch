@@ -1,0 +1,30 @@
+diff --git a/src/session.ts b/src/session.ts
+index 1a2b3c4..5d6e7f8 100644
+--- a/src/session.ts
++++ b/src/session.ts
+@@ -8,6 +8,7 @@ export class SessionManager {
+   private restoring = false;
+   private sessionRestored = false;
+   private dirty = false;
++  private loading = false;
+
+   constructor(private storage: SessionStorage) {}
+
+@@ -15,10 +16,12 @@ export class SessionManager {
+   async restoreSession(id: string): Promise<void> {
+     if (this.restoring) return;
+     if (this.sessionRestored && !this.dirty) return;
++    if (this.loading) return;
+
+     this.restoring = true;
++    this.loading = true;
+     try {
+       const data = await this.storage.load(id);
+       this.applyData(data);
+       this.sessionRestored = true;
++      this.dirty = false;
+     } finally {
+       this.restoring = false;
++      this.loading = false;
+     }
+   }
