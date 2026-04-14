@@ -21,7 +21,7 @@ Parse the raw arguments:
 - `--scope <auto|working-tree|branch|pr>` — review target scope (default: `auto`)
 - `--base <ref>` — explicit base ref for branch diff
 - `--pr <number>` — GitHub PR number to review (implies `--scope pr`)
-- `--prior-review <file-path>` — path to a previous devil-review markdown output covering this same diff. When supplied, patch-chain detection in Step 3b reads it, cross-references the current review's candidate findings against the prior review's findings and `considered_not_promoted` entries, and emits a `prior-review-overlap` signal when the overlap crosses the threshold. The file must be a devil-review output with an intact JSON fence (schema_version required); non-matching files are rejected with a warning and the flag is treated as absent.
+- `--prior-review <file-path>` — path to a previous devil-review markdown output covering this same diff. When supplied, patch-chain detection in Step 3b reads it, cross-references the current review's candidate findings against the prior review's findings and `considered_not_promoted` entries, and emits a `prior-review-overlap` signal when the overlap crosses the threshold. The file must be a devil-review output with an intact JSON fence (schema_version required); non-matching or unreadable files are rejected and the flag is treated as absent. **Observability requirement (v1.10.1):** whenever `--prior-review` is supplied, the reviewer **must** emit a `scenarios_considered` line of the form `prior-review ingestion: <status>` where `<status>` is exactly one of `loaded`, `rejected-no-schema-version`, `rejected-malformed-json`, or `rejected-file-not-found`. Silent drops are not permitted — the user who supplied the flag is entitled to a visible signal that the flag was either honored or rejected, with the reason. This is the observable counterpart of the trust-but-verify rule at the prior-review boundary.
 - Everything else after flags → `FOCUS_TEXT`
 
 ---
@@ -232,6 +232,11 @@ Do not start writing output until you have:
 - routed `FOCUS_TEXT` if present
 - applied the final_check to every candidate finding
 - dropped weak findings to fit the hard cap
+- classified every finding into one of the four `finding_type` values (`correctness`, `design_debt`, `best_practice_violation`, `architectural_smell`) — a finding without `finding_type` is a grounding failure per schema v1.6
+- populated `lift_considered` on every finding whose recommendation is a runtime guard, OR named a system boundary in the finding body that explains why a lift is not the right primitive — per the Lift hierarchy rule and the v1.10.1 guard-legitimacy condition in `output-schema.md`
+- populated `trace_log.patch_chain_risk` with a non-empty `theme_assessment` whenever any Step 3b signal fired, regardless of the final `detected` value — the reviewer's theme-vs-root judgment is auditable
+- emitted a `scenarios_considered` line `prior-review ingestion: <status>` if `--prior-review` was supplied in Step 1, regardless of acceptance outcome — silent drops of the flag are not permitted
+- verified every required field listed in `output-schema.md` JSON rules is present — this is the backstop for future schema additions; when a new required field lands in a later version, the checklist does not need a per-field bullet if this backstop bullet catches it
 
 ---
 
