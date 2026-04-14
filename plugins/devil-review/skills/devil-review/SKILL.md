@@ -21,6 +21,7 @@ Parse the raw arguments:
 - `--scope <auto|working-tree|branch|pr>` — review target scope (default: `auto`)
 - `--base <ref>` — explicit base ref for branch diff
 - `--pr <number>` — GitHub PR number to review (implies `--scope pr`)
+- `--prior-review <file-path>` — path to a previous devil-review markdown output covering this same diff. When supplied, patch-chain detection in Step 3b reads it, cross-references the current review's candidate findings against the prior review's findings and `considered_not_promoted` entries, and emits a `prior-review-overlap` signal when the overlap crosses the threshold. The file must be a devil-review output with an intact JSON fence (schema_version required); non-matching files are rejected with a warning and the flag is treated as absent.
 - Everything else after flags → `FOCUS_TEXT`
 
 ---
@@ -107,6 +108,41 @@ If `git merge-base` fails (common in shallow clones / CI), emit the error output
 ### Empty diff handling
 
 If the resolved diff is empty (no staged, unstaged, untracked, or branch-divergent changes), emit the error output with error code `empty_diff` and verdict `null`. Do NOT return `approve` — an empty review is not an approval.
+
+---
+
+## Step 3b — Patch-chain scan
+
+After collecting the diff but before the large-diff guard, scan recent commit history for patterns that indicate iterative patching on the same surface. Multi-round defensive commits on the same file set are a signal that candidate findings in this review may be artifacts of prior rounds' guards rather than organic defects — and the correct next step is then a structural refactor, not round N+1 of guard-chasing. The rule and severity implications live in the "Patch-chain detection" section of `methodology.md`; this step is the data-collection side.
+
+### Collect the commit history
+
+Run:
+
+```
+git log -<N> --oneline -- <changed-files>
+```
+
+Where `<N>` is `5` for working-tree and branch modes, `10` for PR mode (PRs accumulate more commits than typical local changes). `<changed-files>` is the set of files already identified in Step 3's diff.
+
+### Signals — at least one must fire to populate `patch_chain_risk`
+
+1. **Fix-prefix cluster.** Among the last 4 commits that touch any reviewed file, ≥50% (i.e., ≥2 of 4) have messages prefixed with any of: `fix:`, `guard:`, `prevent:`, `patch:`, `workaround:`, `hotfix:` (case-insensitive; conventional-commits scope suffix like `fix(auth):` still counts). The cluster is "same surface, repeatedly defensive".
+2. **Same-file hotspot.** A single reviewed file appears in ≥3 of the last 5 commits (working-tree / branch mode) or ≥5 of the last 10 commits (PR mode). File frequency alone is not enough without a defensive-prefix cluster, but combined with signal 1 it strengthens the signal — record both when both fire.
+3. **Prior-review overlap** (only when `--prior-review <file-path>` is supplied). Load the prior review file, extract its findings array and `considered_not_promoted` array via its JSON fence (reject with warning and treat `--prior-review` as absent if no `schema_version` field is present). If ≥50% of the current review's candidate findings reference file locations that also appeared in the prior review's findings or `considered_not_promoted`, the signal fires. Also cross-reference each current finding's `file:line` against the prior review's entries and annotate any overlaps in the finding body: "This location also appeared in the prior review as finding #N" — this annotation is body-only, not a new schema field.
+
+### Theme-vs-root guard (reviewer-gated)
+
+Before emitting `patch_chain_risk.detected: true`, answer one sanity-check sentence: *"do the prior defensive commits address the same underlying root cause, or different root causes on the same file set?"*
+
+- **Same root** → the patch chain is real. The same invariant has been violated repeatedly; each round has added a guard on top. Emit the signal, and it satisfies clause (a) of verdict derivation rule 3 (`refactor-recommended`) in `methodology.md` — prefer refactor over further guard iteration even if individual current findings are only medium severity.
+- **Different roots** → a legitimate hotfix-heavy file (e.g., a known-flaky integration test harness that genuinely receives independent hotfixes) has tripped the frequency/prefix signals without the underlying patch-chain dynamic. Do **not** emit `detected: true`; set `detected: false` with a note in `theme_assessment` explaining why. This guard exists because the deterministic signals alone over-fire on legitimate hotspots, and `refactor-recommended` is wrong for a file where every fix addresses a different invariant.
+
+Record the theme-vs-root assessment in `patch_chain_risk.theme_assessment` — this field is mandatory whenever any of signals 1–3 fired, regardless of whether `detected` ends up `true` or `false`. The purpose is auditability: downstream consumers should see that the reviewer considered the guard and chose one way or the other.
+
+### Threshold rationale (acknowledged uncalibrated starting values)
+
+The specific thresholds — `N` commits scanned, the 50% cluster ratio, the 4-commit window, the 3-of-5 same-file hotspot — are not derived from data. No corpus of past reviews exists to calibrate against. They are starting values chosen to be strict enough to avoid firing on typical 1–2 hotfix sequences but permissive enough to fire on a genuine 3-round iteration. The first round of real usage after shipping is the calibration signal; if the false-positive rate is visible and persistent, revise the thresholds in a v1.10.x patch bump and record the empirical basis in the revision log. Hardcoding arbitrary starting values and iterating on them is preferable to blocking the whole feature on a calibration corpus that does not exist.
 
 ---
 

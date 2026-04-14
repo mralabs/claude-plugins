@@ -29,6 +29,9 @@ Every diff has dark corners — the edge case nobody tested, the race condition 
 
 # Combine flags
 /devil-review --scope branch --base develop concurrency handling
+
+# Feed a prior devil-review output for patch-chain detection on a second round
+/devil-review --prior-review ./reviews/round-1.md
 ```
 
 ## How it works
@@ -83,6 +86,7 @@ Findings carry a `finding_type` that places each one into `correctness | design_
 - **Test-trace per finding** — every reported finding must answer "why didn't existing tests catch this?" with `no-test`, `mock-bypass`, or `missing-assertion`. Findings without a defensible answer are dropped. Catches mocked tests that exercise only the consumer's mental model of the contract, not the producer.
 - **Generalization test** — every finding is reframed at the root invariant before reporting. Narrow framings ("crashed-tab edge case") are widened to the underlying invariant ("any session switch with a live process") so the fix matches the actual blast radius rather than the most extreme example.
 - **Prior-reviewer stance** — recommendations from earlier reviews (previous devil-review runs, codex review, PR comments) are reviewable artifacts, not architectural decisions. A change made in response to earlier feedback gets *more* scrutiny, not less, because over-correction is the default failure mode when targeting a narrow critique.
+- **Patch-chain detection** — when the same diff is reviewed multiple times, the skill scans recent git history for defensive-commit clusters (`fix:`, `guard:`, `prevent:`, `workaround:`, `hotfix:` prefixes) on the reviewed files, and — when `--prior-review <file>` is supplied — cross-references current candidate findings against the prior review's findings. If the signals fire on a genuine patch chain (same root cause repeatedly guarded, not different roots on the same hotspot), the verdict shifts to `refactor-recommended` and the recommendation is to collapse the guard cluster structurally rather than add another guard. Catches the failure mode where each new review round chases edge cases introduced by the previous round's guards.
 
 **Domain-specific checklists** — loaded automatically based on what files the diff touches. A single review can load several:
 
@@ -161,7 +165,7 @@ Considered but not promoted:
 **Test coverage**: <one of `no-test:`, `mock-bypass:`, or `missing-assertion:` followed by a one-sentence explanation>
 ```
 
-Followed by a JSON fence carrying the same data in a structured form for downstream tools (current schema version: **1.6**, see `skills/devil-review/output-schema.md` for the full contract). The schema is additive across patch and minor versions — older consumers parse newer payloads without error, but new fields (`failure_modes_considered`, `new_reader_paths`, `test_coverage`, `considered_not_promoted`, `acceptance_criteria_crosswalk`, `finding_type`, `lift_considered`, `correctness_severity`, `design_debt_severity`) are only visible to consumers that bump to the matching schema version.
+Followed by a JSON fence carrying the same data in a structured form for downstream tools (current schema version: **1.7**, see `skills/devil-review/output-schema.md` for the full contract). The schema is additive across patch and minor versions — older consumers parse newer payloads without error, but new fields (`failure_modes_considered`, `new_reader_paths`, `test_coverage`, `considered_not_promoted`, `acceptance_criteria_crosswalk`, `finding_type`, `lift_considered`, `correctness_severity`, `design_debt_severity`, `patch_chain_risk`) are only visible to consumers that bump to the matching schema version.
 
 ## File layout
 

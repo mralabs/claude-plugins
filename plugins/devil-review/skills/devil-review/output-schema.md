@@ -116,10 +116,11 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - `1.4` — added two optional nested fields: `symbols_inspected[].failure_modes_considered` for auditing unchanged callees against new callers, and `mutated_records_inspected[].new_reader_paths` for auditing preserved siblings against new writer→reader paths. No new top-level fields; both extensions are additive and nested inside existing arrays, so v1.3 consumers parse v1.4 payloads without error. Strict consumers must bump to read the new nested data.
 - `1.5` — added optional top-level `trace_log.acceptance_criteria_crosswalk` for recording per-AC proof-of-implementation walks when the review target includes a spec with structured acceptance criteria. Conditionally required: must be populated when a spec with structured ACs exists, optional (empty array) otherwise. The field exists so the "I crosswalked the spec" claim is falsifiable. No fields removed or retyped; v1.4 consumers parse v1.5 payloads without error and simply ignore the unknown key.
 - `1.6` — extended `verdict` enum with a fourth value `refactor-recommended` (existing three values keep their exact prior semantics). Added optional top-level `correctness_severity` and `design_debt_severity` (same enum as `findings[].severity` plus `none`). Added required `findings[].finding_type` (enum: `correctness | design_debt | best_practice_violation | architectural_smell`) — consumers reading payloads without this field (replay of v1.5 snapshots) must treat absence as `"correctness"`. Added optional `findings[].lift_considered` (three-way object with type_lift / writer_lift / ordering_lift, each carrying `{viable, rationale}`) for recording lift evaluation when the recommendation is a guard. Added optional `considered_not_promoted[].design_alternative_considered` (string) and `considered_not_promoted[].tracked_as_debt` (boolean) for observations that are debt rather than bugs. Compatibility property: v1.5-era payloads re-validated under v1.6 rules produce identical verdicts because the default-to-correctness rule on missing `finding_type` preserves pre-v1.6 block semantics.
+- `1.7` — added optional `trace_log.patch_chain_risk` object for recording the git-log patch-chain scan from SKILL.md Step 3b. Conditionally required: when any of the three signals (fix-prefix cluster, same-file hotspot, prior-review overlap) fires during Step 3b, the field must be present and must carry `theme_assessment` regardless of whether `detected` is `true` or `false` — the theme-vs-root judgment is auditable. When no signal fires, the field may be omitted entirely. No existing fields removed or retyped; v1.6 consumers ignore the unknown key and see identical verdicts on inputs without patch-chain signals. The `refactor-recommended` verdict rule 3 clause (a) becomes reachable for the first time with v1.7 — v1.6 reviewers could emit `refactor-recommended` via clause (b) (design_debt findings outnumber correctness) but not via patch-chain without v1.7 infrastructure.
 
 ```json
 {
-  "schema_version": "1.6",
+  "schema_version": "1.7",
   "verdict": "block | needs-attention | refactor-recommended | approve",
   "target": {
     "mode": "working-tree | branch | pr",
@@ -197,7 +198,16 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
         "implementation": "<path/to/impl:line-range, or null if status is missing>",
         "notes": "<optional one-sentence rationale, especially for ambiguous or contradicted>"
       }
-    ]
+    ],
+    "patch_chain_risk": {
+      "detected": false,
+      "signals_fired": ["fix-prefix-cluster | same-file-hotspot | prior-review-overlap", "..."],
+      "chain_depth": 0,
+      "prior_commits": ["<short-sha> <subject>", "..."],
+      "prior_review_file": "<path or null>",
+      "theme_assessment": "<one-sentence answer to: do prior defensive commits address the same root cause, or different roots on the same file set?>",
+      "recommendation": "<one-sentence note on what the signal means for this review — e.g. 'prefer refactor over another guard iteration' or 'coincidence cluster on a legitimate hotfix-heavy file, not a patch chain'>"
+    }
   },
   "findings": [
     {
@@ -238,6 +248,7 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - **`trace_log.mutated_records_inspected`** is required on every review where the diff writes to at least one record. Each entry requires `record`, `kind`, `siblings_considered` (list every sibling field on the record, even ones you concluded were safe), and optionally `note`. Empty array `[]` is valid only if the diff contains zero record writes — in that case add `no record writes in diff` as a scenario line. Skipping this field when writes exist is the same class of grounding failure as an empty `symbols_inspected`: you skipped the data-model fanout trace.
 - **`findings[].test_coverage`** is required on every finding. Both `covered_by` (test file path with line, or `null`) and `why_missed` (enum: `no-test`, `mock-bypass`, `missing-assertion`, plus a one-sentence explanation) must be present. If you cannot produce a test-trace answer from one of these three categories, the finding is invalid — either re-read the tests or drop it. See the test-trace rule in `methodology.md`. This field cannot be `null` and cannot be omitted: a finding without it indicates the reviewer skipped the validation gate and the finding cannot be trusted.
 - **`trace_log.acceptance_criteria_crosswalk`** is conditionally required. When the pre-review context step loads a spec with **structured acceptance criteria** (explicit "must" statements, numbered requirements, bulleted ACs, definition-of-done checklist), the crosswalk must be populated with one entry per AC — including ACs that pass. Empty array `[]` is valid only when no spec loaded OR the loaded spec has no structured ACs (prose-only narrative RFCs qualify for the empty-list exemption). In the empty-list case, `classification_notes` or a scenario line must explain why: e.g. `"no spec loaded for this diff"` or `"spec loaded but no structured ACs — crosswalk skipped"`. Each entry requires `ac` (the AC text quoted verbatim), `spec_location` (file:line or section heading), `status` (one of `implemented`, `ambiguous`, `missing`, `contradicted`), and `implementation` (file:line-range for `implemented` / `ambiguous` / `contradicted`; `null` for `missing`). `notes` is optional but recommended for non-`implemented` statuses. See the "Acceptance criteria crosswalk" section in `methodology.md`. Skipping this field when a spec with ACs is present is the same class of grounding failure as an empty `symbols_inspected` — the audit did not happen.
+- **`trace_log.patch_chain_risk`** is conditionally required. When SKILL.md Step 3b scans the git log and **any** of the three signals fires (`fix-prefix-cluster`, `same-file-hotspot`, `prior-review-overlap`), the field must be present and must carry a one-sentence `theme_assessment` regardless of whether `detected` ends up `true` or `false`. When no signal fires, the field may be omitted entirely. When the field is present: `detected` (boolean) records whether the reviewer's theme-vs-root judgment confirms the patch chain; `signals_fired` (array) lists which signals triggered the scan; `chain_depth` (integer) is the count of defensive commits in the window that match the prefix filter (0 if only the prior-review-overlap signal fired); `prior_commits` (array of one-line strings `"<sha> <subject>"`) records the evidence — omit or empty-array if the prior-review-overlap signal fired alone; `prior_review_file` is the `--prior-review` path when supplied, else `null`; `theme_assessment` is the mandatory one-sentence answer to the theme-vs-root gate; `recommendation` is a one-sentence note on what the signal means for this review. See the "Patch-chain detection" section in `methodology.md` and the data-collection rules in SKILL.md Step 3b. Emitting `detected: true` without a `theme_assessment` is the same class of grounding failure as an empty `symbols_inspected` — the reviewer skipped the gate. The `refactor-recommended` verdict rule 3 clause (a) reads `detected == true` from this field; clause (b) is independent of this field and remains reachable in v1.6 payloads.
 - **`findings` length must respect the hard cap** from `methodology.md` (3 under 500 lines, 5 under 1500, 3 per split group).
 - **`confidence`** is 0.0–1.0. Use it for your own uncertainty — do not soften severity to compensate for low confidence.
 - **`findings[].finding_type`** is required on every finding emitted by schema v1.6 or later. Values: `correctness | design_debt | best_practice_violation | architectural_smell`. Classification rules live in the "Severity axes and finding taxonomy" section of `methodology.md`. **Default-to-correctness rule (backward compatibility):** consumers reading payloads without this field — typically v1.5-era snapshots replayed through v1.6 tooling — must treat absence as `"correctness"`. This rule is what keeps v1.5 payloads producing identical verdicts under v1.6 rules; do not change it.
@@ -272,7 +283,7 @@ Followed by:
 
 ```json
 {
-  "schema_version": "1.6",
+  "schema_version": "1.7",
   "verdict": null,
   "error": "<error code: not_a_repo | gh_missing | empty_diff | shallow_clone_no_base | other>",
   "message": "<human-readable explanation>"
