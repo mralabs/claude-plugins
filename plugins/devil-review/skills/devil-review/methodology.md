@@ -45,7 +45,7 @@ Cross-reference with CLAUDE.md architectural decisions — if the change violate
 
 ### Changed symbols & their consumers (mandatory)
 
-For each added or modified **symbol** in the diff — function, method, component, class, type, schema, config key, exported constant — grep for its usage across the codebase and read the calling sites:
+For each added or modified **symbol** in the diff — function, method, component, class, type, schema, config key, exported constant — use the codebase search primitive (not a shell invocation) to find its usages, and the file-read primitive for the calling sites. See SKILL.md Step 5.4 for the specific tools in this runtime:
 
 - **Functions/methods**: direct callers. Read the calling code to understand the contract.
 - **Components** (`.vue`, `.tsx`, `.jsx`, `.svelte`): parent templates that mount them. Identify how many instances can be mounted concurrently (look for `v-for`, `.map()`, iteration). What visibility pattern controls them (`v-if` removes, `v-show` toggles, neither)? What props gate per-instance state (`active`, `visible`, `disabled`)?
@@ -111,7 +111,7 @@ Mutated record fanout above answers the writer-side question: *for the fields th
 
 For every sibling field you classified as **preserved** in the mutated record fanout, run this additional check:
 
-1. **Grep for readers** of the preserved field — templates, selectors, computed properties, destructured reads, direct property access.
+1. **Find readers** of the preserved field via the codebase search primitive — templates, selectors, computed properties, destructured reads, direct property access.
 2. For each reader, **ask what paths currently reach it**. The reader's correctness depends on invariants that hold along the paths that existed before the diff.
 3. **Identify new paths the diff creates to this reader**. A new caller of an existing function, a new lifecycle trigger (restart, remount, refresh, respawn), a new action that ends in the same reducer, a new route that hits the same handler — each is a new path.
 4. **For each new path, check whether the reader's invariants still hold**. The old write path may have guaranteed "this field is never empty when the reader runs" or "this field is always fresh" or "this field's content came from the same source as that field's content". Does the new path preserve the same guarantee?

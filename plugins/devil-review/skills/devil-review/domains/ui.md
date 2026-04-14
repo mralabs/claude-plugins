@@ -16,7 +16,7 @@ UI bugs rarely live inside a single component. They live at the **composition bo
 
 Do not reason about a component in isolation. For every component changed in the diff:
 
-1. Grep for `<ComponentName`, `import ComponentName`, or the React JSX usage across the codebase.
+1. Use the Grep tool to find `<ComponentName`, `import ComponentName`, or the React JSX usage across the codebase.
 2. For each parent that mounts it, answer:
    - **How many instances can be mounted concurrently?** Look for `v-for`, `.map()`, iteration, tabbed layouts, split views, modal stacks.
    - **What's the visibility pattern?**
@@ -62,7 +62,7 @@ When the parent hides `containerRef` via JS (e.g., on tab switch), `NewButton` s
 
 ## Effect / composable cleanup
 
-- Every `onMounted` / `useEffect` with a subscription must have matching cleanup. Grep for the subscription source in the diff and verify unsubscribe runs on unmount.
+- Every `onMounted` / `useEffect` with a subscription must have matching cleanup. Use the Grep tool to find the subscription source in the diff and verify unsubscribe runs on unmount.
 - `ResizeObserver`, `IntersectionObserver`, `MutationObserver` — disconnect on cleanup.
 - Event listeners attached to `window`, `document`, or external elements — removed on cleanup.
 - Intervals (`setInterval`, `requestAnimationFrame` loops) — cleared on cleanup.

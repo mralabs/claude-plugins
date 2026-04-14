@@ -61,7 +61,7 @@ Crypto bugs are **silent, catastrophic, and auditable after the fact**. A bug th
 ## Key management
 
 - **Where does the key come from?** Hardcoded (bad), environment variable (okay for non-production), config file (depends on protection), KMS / HSM / secret manager (good).
-- **Is the key logged?** Grep for the key variable name in error paths. A single `console.log(config)` with a key in it burns the key.
+- **Is the key logged?** Use the Grep tool to find the key variable name in error paths. A single `console.log(config)` with a key in it burns the key.
 - **Key rotation**: does the change support rotation? Can old data still be decrypted with the previous key? Is there a key ID embedded in ciphertext so the right key is selected?
 - **Key derivation**: if a key is derived from a password or master secret, is HKDF (or equivalent) used? Is there domain separation (distinct salts / info strings per use)?
 - **Key material in memory**: does the change hold key bytes longer than necessary? Zeroize on drop where the language allows (Rust `zeroize` crate, explicit overwrite in Go/C).

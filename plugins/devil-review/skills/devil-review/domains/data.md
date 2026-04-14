@@ -119,11 +119,11 @@ For every column the migration adds, renames, drops, retypes, or backfills, enum
 
 - **Other columns on the same row**: did the retype of `amount` from `INT` to `DECIMAL` leave `currency_code` now referring to a different precision? Did renaming `user_id` to `account_id` leave a stale `user_email` denormalized column claiming the old ownership?
 - **Indexes involving the column**: renaming a column invalidates indexes that name it. Dropping a column silently removes it from composite indexes. Does the migration drop/recreate the affected indexes explicitly?
-- **Triggers and stored procedures that read the column**: `CREATE OR REPLACE VIEW ...` that selects the column breaks when the column is renamed. So does a trigger. Grep the schema for references.
+- **Triggers and stored procedures that read the column**: `CREATE OR REPLACE VIEW ...` that selects the column breaks when the column is renamed. So does a trigger. Use the Grep tool to find references in the schema.
 - **Check constraints referencing the column**: a CHECK expression that uses `old_name` fails after rename. Engines differ on whether the check is rewritten automatically.
 - **Foreign keys pointing to the column**: retyping a PK column from `INT` to `BIGINT` requires all FK columns in other tables to be widened too, or the FK constraint will be silently invalid on some engines.
 - **Generated columns depending on the column**: computed/generated columns reference source columns by name. Renames and drops break them.
-- **Application code that SELECTs the column by name**: grep the app for string literals of the old column name. ORMs generally handle this via migrations, but raw SQL in application code does not.
+- **Application code that SELECTs the column by name**: use the Grep tool to find string literals of the old column name in the app. ORMs generally handle this via migrations, but raw SQL in application code does not.
 
 Record the column and its siblings in `mutated_records_inspected` with `kind: db-row`.
 
