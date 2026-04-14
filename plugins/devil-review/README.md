@@ -50,11 +50,14 @@ Every diff has dark corners — the edge case nobody tested, the race condition 
 
 ## Verdict semantics
 
-- **`block`** — at least one critical or high finding that would make you refuse to merge
+- **`block`** — at least one critical or high **correctness** finding that would make you refuse to merge
 - **`needs-attention`** — material issues exist but none are ship-blocking; merge with follow-up
+- **`refactor-recommended`** — correctness looks OK, but structural debt is high enough that iterating in place will make it worse; step back and restructure instead of adding another guard. Typical trigger: a patch-chain pattern across recent commits, or design_debt findings outnumbering correctness findings in a multi-round review
 - **`approve`** — no material findings, the change looks safe to ship
 
-The **ship-blocker question** — "Is there a single issue that would make me refuse to merge?" — is answered before any findings are listed. A yes drives the verdict to `block`.
+The **ship-blocker question** — "Is there a single issue that would make me refuse to merge?" — is answered before any findings are listed. A yes drives the verdict to `block`; a no with high design-debt can drive it to `refactor-recommended`.
+
+Findings carry a `finding_type` that places each one into `correctness | design_debt | best_practice_violation | architectural_smell`. The two severity axes `correctness_severity` and `design_debt_severity` summarize the review at a glance and feed the verdict derivation — see `skills/devil-review/methodology.md` for the full decision tree.
 
 ## What it looks for
 
@@ -158,7 +161,7 @@ Considered but not promoted:
 **Test coverage**: <one of `no-test:`, `mock-bypass:`, or `missing-assertion:` followed by a one-sentence explanation>
 ```
 
-Followed by a JSON fence carrying the same data in a structured form for downstream tools (current schema version: **1.5**, see `skills/devil-review/output-schema.md` for the full contract). The schema is additive across patch and minor versions — older consumers parse newer payloads without error, but new fields (`failure_modes_considered`, `new_reader_paths`, `test_coverage`, `considered_not_promoted`, `acceptance_criteria_crosswalk`) are only visible to consumers that bump to the matching schema version.
+Followed by a JSON fence carrying the same data in a structured form for downstream tools (current schema version: **1.6**, see `skills/devil-review/output-schema.md` for the full contract). The schema is additive across patch and minor versions — older consumers parse newer payloads without error, but new fields (`failure_modes_considered`, `new_reader_paths`, `test_coverage`, `considered_not_promoted`, `acceptance_criteria_crosswalk`, `finding_type`, `lift_considered`, `correctness_severity`, `design_debt_severity`) are only visible to consumers that bump to the matching schema version.
 
 ## File layout
 

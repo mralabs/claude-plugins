@@ -12,7 +12,7 @@ Return your review in **two parts**: a human-readable markdown section, followed
 Target: <"working tree diff" | "branch diff against <ref>" | "PR #<n>">
 Scope: <N files, M lines changed>  [or: "split review (N files across G groups)"]
 Focus: <user's focus text, if provided>
-Verdict: <block | needs-attention | approve>
+Verdict: <block | needs-attention | refactor-recommended | approve>
 
 <1-2 sentence ship/no-ship assessment — terse, not neutral>
 
@@ -58,6 +58,7 @@ Considered but not promoted:
 ### [severity] Title
 - **File**: `path/to/file`
 - **Lines**: L<start>-L<end>
+- **Type**: <correctness | design_debt | best_practice_violation | architectural_smell>
 - **Confidence**: <0.0 to 1.0>
 
 <body — what can go wrong, why this code path is vulnerable, likely impact>
@@ -114,11 +115,12 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - `1.3` — added required `findings[].test_coverage` (object with `covered_by` and `why_missed`) and required `trace_log.mutated_records_inspected` (array tracking data-model fanout, parallel to `symbols_inspected` which tracks the call graph). Added `test-covers-invariant` to the allowed reasons in `considered_not_promoted`. No fields removed or retyped, but the two new required fields mean a v1.2 consumer reading a v1.3 payload will see unknown keys; strict consumers must bump.
 - `1.4` — added two optional nested fields: `symbols_inspected[].failure_modes_considered` for auditing unchanged callees against new callers, and `mutated_records_inspected[].new_reader_paths` for auditing preserved siblings against new writer→reader paths. No new top-level fields; both extensions are additive and nested inside existing arrays, so v1.3 consumers parse v1.4 payloads without error. Strict consumers must bump to read the new nested data.
 - `1.5` — added optional top-level `trace_log.acceptance_criteria_crosswalk` for recording per-AC proof-of-implementation walks when the review target includes a spec with structured acceptance criteria. Conditionally required: must be populated when a spec with structured ACs exists, optional (empty array) otherwise. The field exists so the "I crosswalked the spec" claim is falsifiable. No fields removed or retyped; v1.4 consumers parse v1.5 payloads without error and simply ignore the unknown key.
+- `1.6` — extended `verdict` enum with a fourth value `refactor-recommended` (existing three values keep their exact prior semantics). Added optional top-level `correctness_severity` and `design_debt_severity` (same enum as `findings[].severity` plus `none`). Added required `findings[].finding_type` (enum: `correctness | design_debt | best_practice_violation | architectural_smell`) — consumers reading payloads without this field (replay of v1.5 snapshots) must treat absence as `"correctness"`. Added optional `findings[].lift_considered` (three-way object with type_lift / writer_lift / ordering_lift, each carrying `{viable, rationale}`) for recording lift evaluation when the recommendation is a guard. Added optional `considered_not_promoted[].design_alternative_considered` (string) and `considered_not_promoted[].tracked_as_debt` (boolean) for observations that are debt rather than bugs. Compatibility property: v1.5-era payloads re-validated under v1.6 rules produce identical verdicts because the default-to-correctness rule on missing `finding_type` preserves pre-v1.6 block semantics.
 
 ```json
 {
-  "schema_version": "1.5",
-  "verdict": "block | needs-attention | approve",
+  "schema_version": "1.6",
+  "verdict": "block | needs-attention | refactor-recommended | approve",
   "target": {
     "mode": "working-tree | branch | pr",
     "base_ref": "<ref or null>",
@@ -131,6 +133,8 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
   },
   "focus": "<user focus text or null>",
   "summary": "<1-2 sentence ship/no-ship assessment>",
+  "correctness_severity": "critical | high | medium | low | none",
+  "design_debt_severity": "critical | high | medium | low | none",
   "trace_log": {
     "ship_blocker_answer": "yes | no",
     "ship_blocker_reasoning": "<one sentence — why yes or why no>",
@@ -180,7 +184,9 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
     "considered_not_promoted": [
       {
         "observation": "<one-line description of what you noticed>",
-        "reason": "out-of-scope | low-confidence | covered-by-finding-<N> | spec-accepted | test-covers-invariant"
+        "reason": "out-of-scope | low-confidence | covered-by-finding-<N> | spec-accepted | test-covers-invariant",
+        "design_alternative_considered": "<optional — one sentence naming the lift or structural change that would resolve the observation if it ever became a bug>",
+        "tracked_as_debt": false
       }
     ],
     "acceptance_criteria_crosswalk": [
@@ -196,6 +202,7 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
   "findings": [
     {
       "severity": "critical | high | medium | low",
+      "finding_type": "correctness | design_debt | best_practice_violation | architectural_smell",
       "title": "<short finding title>",
       "file": "<path/to/file>",
       "lines": "L<start>-L<end>",
@@ -204,6 +211,11 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
       "why_vulnerable": "...",
       "impact": "...",
       "recommendation": "...",
+      "lift_considered": {
+        "type_lift": { "viable": false, "rationale": "<one-sentence constraint that blocks or enables this lift>" },
+        "writer_lift": { "viable": false, "rationale": "<...>" },
+        "ordering_lift": { "viable": true, "rationale": "<...>" }
+      },
       "test_coverage": {
         "covered_by": "<path/to/test:line or null>",
         "why_missed": "<code>: <one-sentence explanation>"
@@ -215,8 +227,8 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 
 ### JSON rules
 
-- **`verdict`** is an enum: exactly one of `block`, `needs-attention`, `approve`. No other values.
-- **`trace_log.ship_blocker_answer`** is required when `verdict` is `block` or `needs-attention`. Value is `"yes"` or `"no"`. May be omitted when `verdict` is `approve`.
+- **`verdict`** is an enum: exactly one of `block`, `needs-attention`, `refactor-recommended`, `approve`. No other values. The fourth value `refactor-recommended` was added in schema v1.6 — it means "not a ship-blocker by correctness, but structural debt is high enough that iterating in place will make it worse; step back and restructure".
+- **`trace_log.ship_blocker_answer`** is required when `verdict` is `block`, `needs-attention`, or `refactor-recommended`. Value is `"yes"` only when `verdict == "block"`; otherwise `"no"`. May be omitted when `verdict` is `approve`.
 - **`trace_log.ship_blocker_reasoning`** is required alongside `ship_blocker_answer`. One sentence.
 - **`trace_log.domains_loaded`** is required on every non-error run. Empty array `[]` is valid only if no domain matched — in that case, add a scenario noting "generic attack surface only".
 - **`trace_log.domains_considered_dropped`** is required on every non-error run. Empty array `[]` is valid if no candidate domain was dropped. Every dropped entry needs `{domain, reason}` where reason is one of `not-matched`, `overlap`, `not-applicable`.
@@ -228,8 +240,18 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - **`trace_log.acceptance_criteria_crosswalk`** is conditionally required. When the pre-review context step loads a spec with **structured acceptance criteria** (explicit "must" statements, numbered requirements, bulleted ACs, definition-of-done checklist), the crosswalk must be populated with one entry per AC — including ACs that pass. Empty array `[]` is valid only when no spec loaded OR the loaded spec has no structured ACs (prose-only narrative RFCs qualify for the empty-list exemption). In the empty-list case, `classification_notes` or a scenario line must explain why: e.g. `"no spec loaded for this diff"` or `"spec loaded but no structured ACs — crosswalk skipped"`. Each entry requires `ac` (the AC text quoted verbatim), `spec_location` (file:line or section heading), `status` (one of `implemented`, `ambiguous`, `missing`, `contradicted`), and `implementation` (file:line-range for `implemented` / `ambiguous` / `contradicted`; `null` for `missing`). `notes` is optional but recommended for non-`implemented` statuses. See the "Acceptance criteria crosswalk" section in `methodology.md`. Skipping this field when a spec with ACs is present is the same class of grounding failure as an empty `symbols_inspected` — the audit did not happen.
 - **`findings` length must respect the hard cap** from `methodology.md` (3 under 500 lines, 5 under 1500, 3 per split group).
 - **`confidence`** is 0.0–1.0. Use it for your own uncertainty — do not soften severity to compensate for low confidence.
-- **Verdict consistency**: `block` requires at least one `critical` or `high` finding AND `ship_blocker_answer == "yes"`. `approve` requires zero findings. `needs-attention` is everything in between and requires `ship_blocker_answer == "no"` with material findings present.
-- **Severity inflation guard**: if you answered the ship-blocker question `yes` but no individual finding scores critical or high by the severity definitions, your severity assignment is wrong — re-evaluate the severity of the blocking finding before inflating it to match the verdict. The block test should agree with severity naturally; if it doesn't, the finding is probably not actually ship-blocking.
+- **`findings[].finding_type`** is required on every finding emitted by schema v1.6 or later. Values: `correctness | design_debt | best_practice_violation | architectural_smell`. Classification rules live in the "Severity axes and finding taxonomy" section of `methodology.md`. **Default-to-correctness rule (backward compatibility):** consumers reading payloads without this field — typically v1.5-era snapshots replayed through v1.6 tooling — must treat absence as `"correctness"`. This rule is what keeps v1.5 payloads producing identical verdicts under v1.6 rules; do not change it.
+- **`correctness_severity`** is an optional top-level enum (`critical | high | medium | low | none`). Derived as the max severity among findings with `finding_type == "correctness"` (including findings where `finding_type` is absent and defaults to correctness). Omit the field entirely when no correctness findings exist, or emit `"none"` — both are valid. Consumers should treat absence as `"none"`.
+- **`design_debt_severity`** is an optional top-level enum with the same values. Derived as the max severity among findings with `finding_type == "design_debt"`. Same emit-or-omit rule. `architectural_smell` and `best_practice_violation` findings do not contribute to either axis — they have their own `findings[].severity` but do not roll up today.
+- **`findings[].lift_considered`** is optional. Populate it when the recommendation is a runtime guard (per the Lift hierarchy rule in `methodology.md`). Each of `type_lift`, `writer_lift`, `ordering_lift` carries `{ viable: boolean, rationale: string }` where `rationale` is a one-sentence explanation of the constraint that either blocks or enables that lift. At least one of the three must be `viable: false` for a guard recommendation to be justified — if all three are viable, the recommendation should be a lift rather than a guard. If the recommendation is not a guard (e.g., recommending a lift directly, recommending a test, recommending removing code), the field may be omitted.
+- **`considered_not_promoted[].design_alternative_considered`** is optional — a one-sentence description of the lift or structural change that would resolve the observation if it ever escalated to a bug. Use it when you see a latent issue that is not a bug today but has an obvious structural fix; leaves a breadcrumb for the next reviewer.
+- **`considered_not_promoted[].tracked_as_debt`** is optional boolean. Set to `true` when the observation represents design debt worth tracking even though it doesn't rise to a finding. No consumer required today; metadata for future tooling.
+- **Verdict consistency** (schema v1.6, four rules, strict precedence):
+  - **`block`** — at least one finding with `finding_type == "correctness"` (or absent, treated as correctness by the default-to-correctness rule) AND severity `critical` or `high`, AND `ship_blocker_answer == "yes"`. This is the v1.5 rule unchanged — pre-v1.6 payloads flow through it identically.
+  - **`needs-attention`** — at least one finding of any type with material severity, `block` does not apply, AND `ship_blocker_answer == "no"`. Reviewer judges the issues are real but fixable in place.
+  - **`refactor-recommended`** — `block` does not apply AND `design_debt_severity` is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 feature, until v1.10 ships this clause is unreachable) OR (b) `design_debt` findings outnumber `correctness` findings in this review. `ship_blocker_answer == "no"` — by definition not a correctness ship-blocker.
+  - **`approve`** — zero findings, or the above three rules do not apply.
+- **Severity inflation guard**: if you answered the ship-blocker question `yes` but no individual **correctness** finding scores critical or high, your severity assignment is wrong — re-evaluate the severity of the blocking finding before inflating it to match the verdict. A design_debt finding with severity critical does not justify `ship_blocker_answer == "yes"`; it justifies `verdict: refactor-recommended` with `ship_blocker_answer == "no"`. The block test should agree with severity naturally; if it doesn't, either the finding is not actually a correctness ship-blocker or the finding is miscategorized.
 
 ---
 
@@ -250,7 +272,7 @@ Followed by:
 
 ```json
 {
-  "schema_version": "1.5",
+  "schema_version": "1.6",
   "verdict": null,
   "error": "<error code: not_a_repo | gh_missing | empty_diff | shallow_clone_no_base | other>",
   "message": "<human-readable explanation>"

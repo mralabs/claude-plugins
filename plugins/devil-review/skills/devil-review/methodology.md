@@ -288,6 +288,40 @@ This is a *floor*, not a ceiling. Blast radius, user trust impact, and data perm
 
 **Interaction with "medium is the most-abused tier"**: this floor raises findings *up*, not down. It never promotes a legitimately-low finding to medium, and it does not license inflating uncertain findings to high as a hedge. Confidence still belongs in the confidence score, not the severity. What this rule changes is the **starting point** for LLM-compliance cases — they default high and must be actively argued down, rather than defaulting medium and hoping the reviewer notices the silent-and-probabilistic failure mode.
 
+**Severity axes and finding taxonomy.** (Schema v1.6 / plugin v1.9.0.) Findings now split across two axes: **correctness severity** and **design-debt severity**. Every finding carries a `finding_type` that places it into one of four categories; the two axis severities are derived as the max severity among findings of the relevant category. This separation exists so that "the code works but its structure is accumulating future-correctness risk" can be surfaced without being confused with "the code is wrong today" — two different signals that call for two different next-steps from the user.
+
+**Finding type classification — decision tree (first matching rule wins):**
+
+1. *"Does the code produce wrong output today under a realistic scenario I can name?"* → `correctness`. This is the existing review behavior — when in doubt, this is the category to pick. The default-to-correctness rule in `output-schema.md` (v1.5 payloads replayed through v1.6 tooling) is what makes the v1.6 verdict rules produce identical results on pre-v1.6 inputs.
+2. *"Does the code violate a CLAUDE.md architectural decision, active spec, or ratified design note?"* → `architectural_smell`. The code may be functionally correct; the violation is against the project's intentional choices. Findings in this category often need to be dropped via the `spec-accepted` path if the code's divergence is itself the intentional decision — check before reporting.
+3. *"Does the code violate a domain checklist's best-practice item — e.g., a Pinia persistence boundary violation, a Tauri command ordering convention, a React hooks-of-hooks pattern — without being a correctness bug today?"* → `best_practice_violation`. These findings are fed by `domains/*.md` checklists, not by the generic attack surface. Severity tends to cap at `medium` unless the best-practice violation is an attack-surface enabler.
+4. *"Is the code correct today but its structure is accumulating risk (guard cluster, multiple writers of same invariant, state fragmentation, patch-chain pattern, skipped lift per the Lift hierarchy)?"* → `design_debt`. This is the new category v1.6 introduces. The test question is "will this structure make the next bug in this area harder to fix, or make the next review harder to reason about?" If yes, design debt.
+
+A single finding has exactly one `finding_type`. Findings that straddle categories should be split into separate findings, or classified into the category that matches the most severe consequence. Do not emit `null` or invent categories outside the four-value enum.
+
+**Severity axis derivation:**
+
+- `correctness_severity` = max severity among findings with `finding_type == "correctness"` (including the default case where `finding_type` is absent on replayed v1.5 payloads). If no such findings exist, emit `"none"` or omit the field — both are valid per the schema.
+- `design_debt_severity` = max severity among findings with `finding_type == "design_debt"`. Same emit-or-omit rule.
+- `architectural_smell` and `best_practice_violation` findings do not roll up to a dedicated axis today. They still carry `findings[].severity` and still count toward the hard cap, but they do not drive the verdict derivation directly. If real usage surfaces a need for a dedicated axis for either category, add one in a future bump — do not retrofit the existing axes.
+
+**Verdict derivation — four rules, strict precedence, evaluated top to bottom:**
+
+1. **`block`** — at least one finding with `finding_type == "correctness"` (or absent, treated as correctness) AND severity `critical` or `high`, AND `ship_blocker_answer == "yes"`. Identical to the v1.5 rule; pre-v1.6 payloads flow through unchanged.
+2. **`needs-attention`** — rule 1 does not apply, material findings exist, `ship_blocker_answer == "no"`. The reviewer judges the issues are real but fixable in place — keep iterating.
+3. **`refactor-recommended`** — rule 1 does not apply, AND `design_debt_severity` is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 feature — until v1.10 ships, this clause is unreachable from plugin emission, though external consumers may already populate `trace_log.patch_chain_risk`) OR (b) the count of `design_debt` findings is strictly greater than the count of `correctness` findings in this review. Semantic: *"there may be correctness issues, but fixing them in place will not address the real problem; step back and restructure."* `ship_blocker_answer == "no"` — by definition this is not a correctness ship-blocker.
+4. **`approve`** — zero findings, or none of rules 1–3 apply.
+
+**Compatibility property.** Any v1.5-era payload re-run under v1.6 rules produces the same verdict:
+
+- v1.5 findings have no `finding_type` → default-to-correctness → rule 1 behaves as the v1.5 `block` rule.
+- v1.5 payloads have no `design_debt_severity` → absent treated as `"none"` → rule 3 clause (a) and (b) both unreachable without v1.6 inputs → rule 3 never fires.
+- Rules 2 and 4 reduce exactly to the v1.5 `needs-attention` and `approve` rules respectively.
+
+This property is what keeps v1.9.0 a genuine minor bump per the repo's semver discipline, not a major one. Do not add rules that break it without bumping to a major version.
+
+**Override discipline.** The verdict derivation is a guideline. When you believe the rules produce the wrong verdict for a specific review (e.g., a single high-severity correctness finding is actually a test-only artifact that doesn't reach production, or a patch-chain signal fires on legitimate unrelated hotfixes), override it — but name the override reason in `trace_log.ship_blocker_reasoning` or add a scenario line explaining the deviation. Do not override silently; an override without a call-out looks to downstream consumers like a bug.
+
 ---
 
 ## Final check
