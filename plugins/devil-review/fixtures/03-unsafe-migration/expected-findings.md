@@ -14,6 +14,7 @@ Loose must-contain / must-NOT-contain assertions.
 
 - At least one finding with `finding_type: correctness`.
 - At least one finding with severity `critical` or `high`.
+- The finding's `scope` is `in-diff` — the migration file is added by this diff, so the problem is caused by this change. This is the canonical `in-diff` + `correctness` + `block` combination.
 - The finding references `migrations/0042_add_tenant_id.sql` — file path must match exactly.
 - The finding body names the core failure mode: `NOT NULL` column added without a default, applied to a table with existing rows that cannot satisfy the constraint.
 - The finding's `recommendation` offers at least one of the canonical safe patterns: (a) add a default value in the same migration, (b) add the column as nullable first, then backfill, then a second migration flips it to NOT NULL, (c) a multi-phase deploy that populates values via application code before the NOT NULL enforcement.

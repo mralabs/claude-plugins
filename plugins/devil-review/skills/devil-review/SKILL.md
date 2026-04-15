@@ -265,6 +265,7 @@ Do not start writing output until you have:
 - emitted a `scenarios_considered` line `prior-review ingestion: <status>` on every non-error run — the auto-detect outcome (loaded, absent, or rejected with reason) must always be visible per the observability rule in Step 3b
 - run the **Claim verification pass** on every candidate finding per `methodology.md` and populated `trace_log.findings_dropped_in_verification` (empty array `[]` is valid when every finding survived unchanged — absence of the field means the pass was skipped and is a grounding failure)
 - populated `trace_log.project_rules_loaded` with every project rule file loaded in Step 5.2b (empty array `[]` is valid when no rule file matched; absence is a grounding failure). Findings that cite a rule must emit `findings[].rule_refs` with a verbatim `quote` from the cited file — paraphrased quotes are schema-invalid
+- classified every finding with a `scope` tag — `in-diff` (default), `pre-existing` (bug in code the diff did not touch), or `future-work` (suggestion, not a bug today). Only `in-diff` findings drive verdict escalation; `pre-existing`/`future-work` findings are informational. See the "Scope classification" section in `methodology.md`
 - verified every required field listed in `output-schema.md` JSON rules is present — this is the backstop for future schema additions; when a new required field lands in a later version, the checklist does not need a per-field bullet if this backstop bullet catches it
 
 ---

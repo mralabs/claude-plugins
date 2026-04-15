@@ -265,6 +265,42 @@ The same document can serve both purposes; the distinction is directional (drop 
 
 ---
 
+## Scope classification (mandatory per-finding)
+
+Every finding carries a `scope` tag that says where the problem lives relative to the diff being reviewed. Three values:
+
+- **`in-diff`** — the problem is in code added, modified, or deleted by this diff. This is the default and covers the large majority of findings. A regression introduced by the diff, a new unchecked input, a newly-introduced race, a newly-broken invariant — all `in-diff`.
+- **`pre-existing`** — the problem exists in code the diff did not touch, but the reviewer discovered it while tracing callers/readers/consumers for the diff. The code was already broken before this PR. Still worth raising (the reviewer's eyes landed on it), but structurally separate from the change under review.
+- **`future-work`** — a design improvement the reviewer is flagging as worth doing later. The code works today; the observation is about what would make the next change easier, or what would harden an area that has only been lucky so far. Not a bug, a suggestion.
+
+**Why this field exists.** A finding that says "the diff is broken" and a finding that says "this unrelated code has been broken for months" are different signals for the author. Mixing them is the classic "reviewer overreach" antipattern: the PR author opens the review expecting "did I do this right" and gets "and also please fix these three unrelated things". Without a scope tag, the reviewer is either (a) rule-violating by raising pre-diff issues at all, or (b) under-informing by dropping them silently. Scope tagging resolves the tension: pre-existing findings are allowed but explicitly labeled, so the author can triage them separately from the ship decision.
+
+**Classification decision tree (first matching rule wins):**
+
+1. Does the finding point at a line that appears in the diff's `+` lines (added) or context-overlap with `-` lines (modified context)? → `in-diff`.
+2. Is the finding a structural observation about something the diff *introduced* (a new pattern, a new invariant that is now at risk, a new call chain) even if you cite a line outside the diff's `+` markers? → `in-diff`. The diff is causally responsible for the risk even if the physical line is elsewhere.
+3. Is the finding a concrete bug or correctness issue in code the diff did not cause, did not modify, and does not depend on? → `pre-existing`.
+4. Is the finding a suggestion for a future improvement that does not describe a bug that exists today? → `future-work`.
+
+**Default classification.** `in-diff` is the default. If you cannot clearly justify `pre-existing` or `future-work`, the classification is `in-diff`. Use the body of the finding to name why it is `pre-existing` ("discovered while tracing consumers of `X`") or `future-work` ("not a bug today; becomes one when feature Y lands") when you assign those values.
+
+**Verdict interaction.** Only `scope: in-diff` findings drive verdict escalation. Specifically:
+- `correctness_severity` is derived from the max severity among findings with `finding_type: correctness` **AND** `scope: in-diff`.
+- `design_debt_severity` is derived from the max severity among findings with `finding_type: design_debt` **AND** `scope: in-diff`.
+- `block` verdict requires at least one `in-diff` correctness finding at severity critical/high.
+- `refactor-recommended` clause (b) (design_debt count exceeds correctness count) uses `in-diff` counts on both sides.
+- `needs-attention` requires at least one `in-diff` material finding.
+
+A review with only `pre-existing` and `future-work` findings lands at `verdict: approve` — the *diff itself* is safe to ship even though the reviewer surfaced unrelated issues. This is the semantically correct outcome: scope-tagged findings are transparent so the author knows they exist, but the review of this specific change is an approval.
+
+**Hard cap interaction.** All three scopes count toward the findings hard cap (3 under 500 lines / 5 under 1500 / 3 per split group). Without this rule, a reviewer could pad with `pre-existing` findings to drown out a single `in-diff` finding. The cap forces prioritization across scopes: if you have room for 3 findings and one is a critical in-diff bug, the other two slots should usually go to the next two highest-priority in-diff findings, not to pre-existing observations — unless a pre-existing finding is itself severe enough to warrant the slot.
+
+**Backward compatibility.** Findings without a `scope` field (replay of pre-v1.10 snapshots) are treated as `in-diff` by default. This preserves verdict calculations on legacy payloads identically — v1.9 payloads run through v1.10 rules produce the same verdicts.
+
+**Anti-pattern to avoid.** Using `future-work` as a way to avoid hard calls. "The diff has a subtle correctness issue but I'm marking it `future-work` so the review approves" is a calibration failure — if the diff is broken today, the scope is `in-diff`, severity is real, and the verdict is `block` or `needs-attention`. `future-work` requires a **concrete next-step that the diff does not need**, not a vague "consider improving this later".
+
+---
+
 ## Calibration rules
 
 **Ship-blocker question (answer before listing findings):**
@@ -342,24 +378,28 @@ A single finding has exactly one `finding_type`. Findings that straddle categori
 
 **Severity axis derivation:**
 
-- `correctness_severity` = max severity among findings with `finding_type == "correctness"` (including the default case where `finding_type` is absent on replayed v1.5 payloads). If no such findings exist, emit `"none"` or omit the field — both are valid per the schema.
-- `design_debt_severity` = max severity among findings with `finding_type == "design_debt"`. Same emit-or-omit rule.
+- `correctness_severity` = max severity among findings with `finding_type == "correctness"` **AND** `scope == "in-diff"` (including the default case where `finding_type` is absent on replayed v1.5 payloads and `scope` is absent on pre-v1.10 payloads — both default to `correctness` and `in-diff` respectively). If no such findings exist, emit `"none"` or omit the field — both are valid per the schema.
+- `design_debt_severity` = max severity among findings with `finding_type == "design_debt"` **AND** `scope == "in-diff"`. Same emit-or-omit rule.
 - `architectural_smell` and `best_practice_violation` findings do not roll up to a dedicated axis today. They still carry `findings[].severity` and still count toward the hard cap, but they do not drive the verdict derivation directly. If real usage surfaces a need for a dedicated axis for either category, add one in a future bump — do not retrofit the existing axes.
+- **Scope filter rationale.** `pre-existing` and `future-work` findings are allowed to be reported but do not drive verdict escalation — per the "Scope classification" section above. A review whose only findings are pre-existing bugs in unrelated code lands at `verdict: approve` because the *diff itself* is safe to ship; the pre-existing issues are surfaced transparently so the author can file follow-ups without mixing them into the ship decision.
 
 **Verdict derivation — four rules, strict precedence, evaluated top to bottom:**
 
-1. **`block`** — at least one finding with `finding_type == "correctness"` (or absent, treated as correctness) AND severity `critical` or `high`, AND `ship_blocker_answer == "yes"`. Identical to the v1.5 rule; pre-v1.6 payloads flow through unchanged.
-2. **`needs-attention`** — rule 1 does not apply, material findings exist, `ship_blocker_answer == "no"`. The reviewer judges the issues are real but fixable in place — keep iterating.
-3. **`refactor-recommended`** — rule 1 does not apply, AND `design_debt_severity` is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 feature — until v1.10 ships, this clause is unreachable from plugin emission, though external consumers may already populate `trace_log.patch_chain_risk`) OR (b) the count of `design_debt` findings is strictly greater than the count of `correctness` findings in this review. Semantic: *"there may be correctness issues, but fixing them in place will not address the real problem; step back and restructure."* `ship_blocker_answer == "no"` — by definition this is not a correctness ship-blocker.
-4. **`approve`** — zero findings, or none of rules 1–3 apply.
+All rules below filter on `scope == "in-diff"` (the default when `scope` is absent on pre-v1.10 payloads). `pre-existing` and `future-work` findings are emitted for transparency but do not drive verdict — see the "Scope classification" section for the rationale.
 
-**Compatibility property.** Any v1.5-era payload re-run under v1.6 rules produces the same verdict:
+1. **`block`** — at least one finding with `finding_type == "correctness"` (or absent, treated as correctness) AND `scope == "in-diff"` (or absent, treated as in-diff) AND severity `critical` or `high`, AND `ship_blocker_answer == "yes"`. Identical to the v1.5 rule on pre-v1.10 payloads; pre-v1.10 payloads flow through unchanged because both defaults (correctness + in-diff) preserve the original filter.
+2. **`needs-attention`** — rule 1 does not apply, at least one `in-diff` finding of material severity exists, `ship_blocker_answer == "no"`. The reviewer judges the issues are real but fixable in place — keep iterating.
+3. **`refactor-recommended`** — rule 1 does not apply, AND `design_debt_severity` (computed from `in-diff` findings only) is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 feature) OR (b) the count of `in-diff design_debt` findings is strictly greater than the count of `in-diff correctness` findings in this review. Semantic: *"there may be correctness issues, but fixing them in place will not address the real problem; step back and restructure."* `ship_blocker_answer == "no"` — by definition this is not a correctness ship-blocker.
+4. **`approve`** — zero findings, or all findings are `pre-existing`/`future-work`, or none of rules 1–3 apply. A review with only pre-existing/future-work findings lands here: the diff ships, unrelated issues are surfaced for the author to triage separately.
+
+**Compatibility property.** Any v1.5-era payload re-run under v1.6+ rules produces the same verdict, and any v1.9-era payload re-run under v1.10 rules produces the same verdict:
 
 - v1.5 findings have no `finding_type` → default-to-correctness → rule 1 behaves as the v1.5 `block` rule.
 - v1.5 payloads have no `design_debt_severity` → absent treated as `"none"` → rule 3 clause (a) and (b) both unreachable without v1.6 inputs → rule 3 never fires.
+- v1.9-and-earlier findings have no `scope` → default-to-in-diff → the scope filter is a no-op on legacy payloads, preserving verdict calculation identically. A v1.9 review that would have emitted `block` still emits `block` under v1.10 rules.
 - Rules 2 and 4 reduce exactly to the v1.5 `needs-attention` and `approve` rules respectively.
 
-This property is what keeps v1.9.0 a genuine minor bump per the repo's semver discipline, not a major one. Do not add rules that break it without bumping to a major version.
+This property is what keeps every minor bump a genuine minor bump per the repo's semver discipline, not a major one. Do not add rules that break it without bumping to a major version.
 
 **Override discipline.** The verdict derivation is a guideline. When you believe the rules produce the wrong verdict for a specific review (e.g., a single high-severity correctness finding is actually a test-only artifact that doesn't reach production, or a patch-chain signal fires on legitimate unrelated hotfixes), override it — but name the override reason in `trace_log.ship_blocker_reasoning` or add a scenario line explaining the deviation. Do not override silently; an override without a call-out looks to downstream consumers like a bug.
 
