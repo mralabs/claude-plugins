@@ -1,7 +1,7 @@
 # devil-review — Phase 3 Plan
 
-**Status:** Item 1 shipped 2026-04-14 (v1.10.0). Items 6, 7, 8, 9 shipped 2026-04-15 (v1.12.0 / v1.13.0 / v1.14.0 / v1.15.0 + v1.15.1 patch). Items 12, 11, 10 shipped 2026-04-15 (v1.16.0 / v1.17.0 / v1.18.0) — saha-test-#3 menu complete. Items 2, 3, 4, 5 remain unstarted (demand-gated per original policy).
-**Plugin version at time of writing:** v1.3.2 (initial spec); v1.10.0 (Item 1 shipping); v1.11.0 (auto-detect prior-review); v1.12.0–v1.15.0 (saha-test-#2 shipping series 2026-04-15); v1.15.1 (patch correction); v1.16.0–v1.18.0 (saha-test-#3 shipping series 2026-04-15)
+**Status:** Item 1 shipped 2026-04-14 (v1.10.0). Items 6, 7, 8, 9 shipped 2026-04-15 (v1.12.0 / v1.13.0 / v1.14.0 / v1.15.0 + v1.15.1 patch). Items 12, 11, 10 shipped 2026-04-15 (v1.16.0 / v1.17.0 / v1.18.0) — saha-test-#3 menu complete. Item 10's UX relocated to a `--reject` inline flag in v1.19.0 (2026-04-15, same-day). Items 2, 3, 4, 5 remain unstarted (demand-gated per original policy). Item 14 (fixture 04 for chain-of-rejections override coverage) added 2026-04-15 post-v1.18.0 review — unstarted, trigger-gated.
+**Plugin version at time of writing:** v1.3.2 (initial spec); v1.10.0 (Item 1 shipping); v1.11.0 (auto-detect prior-review); v1.12.0–v1.15.0 (saha-test-#2 shipping series 2026-04-15); v1.15.1 (patch correction); v1.16.0–v1.18.0 (saha-test-#3 shipping series 2026-04-15); v1.19.0 (UX relocation same-day)
 **Scope:** Everything deferred out of v1.3.x. Phase 1 (architecture) and Phase 2 (content) landed in v1.3.0; patches in v1.3.1/v1.3.2. Phase 3 is the "durability & maturation" bucket — optional, pickable à la carte after real usage feedback.
 
 > **Guiding principle:** Don't design for hypothetical requirements. Every Phase 3 item is justified against an observed gap, not a theoretical one. Use the skill in real PRs first; let friction dictate priority.
@@ -625,6 +625,51 @@ Definitions:
 
 ---
 
+## Item 14 — Fixture 04 exercising chain-of-rejections override (rule 0)
+
+**Goal:** Add a fourth fixture under `plugins/devil-review/fixtures/04-chain-of-rejections/` that exercises the v1.14 chain-of-rejections verdict override (rule 0). The fixture pre-seeds `rejections.json` with ≥2 rejection hashes matching findings the reviewer would produce on the fixture diff, and asserts the override fires — `verdict: approve`, `decision.action: ship`, `decision.rationale` names the resurface count and the chain-of-rejections pattern.
+
+**Why it matters (observed, not speculative):** Post-ship adversarial review of the v1.18.0 shipping (and carried through v1.19.0's UX relocation) surfaced that fixtures 01, 02, 03 all have `resurface_count = 0`. The override-0 path is structurally untested by the regression harness: a regression that (a) mis-applied the `≥2` threshold (fires at `≥1` or `≥3`), (b) forgot to force `verdict: approve` or `decision.action: ship`, or (c) evaluated rules 1-4 before the override would pass fixtures 01/02/03 undetected. Same gap pattern as the scope-filter-only fixture coverage (fixtures don't exercise `pre-existing` or `future-work`) and the reachability-filter-only coverage (fixtures don't exercise `hypothetical` or `requires-specific-config`), but more urgent because override 0 is the newest rule and has not been exercised in real usage yet.
+
+**Non-goals:**
+- Not a calibration exercise for the `≥2` threshold. Calibration comes from real `/devil-review --reject` saha usage; the fixture locks in whatever threshold is current.
+- Not a test of the reviewer's suppress-vs-re-raise judgment (that's reviewer-gated per methodology; fixture exercises the structural override once rejections ARE re-raised).
+- Not a replacement for the existing 3 fixtures — all four coexist.
+
+**Shape:**
+
+New fixture directory `plugins/devil-review/fixtures/04-chain-of-rejections/`:
+
+- `diff.patch` — synthetic diff (small, self-contained) that produces at least 2 findings whose normalized `file:lines:title` hashes can be computed deterministically from a seeded rejection file.
+- `context.md` — minimal repo context.
+- `rejections.json` — pre-seeded sidecar with `schema_version: "1.0"` and 2+ rejection entries whose hashes correspond to findings the diff is expected to produce. The hashes need to be computed from actual expected titles — either by running the skill once, capturing the emitted titles, and seeding from that, or by using very short deterministic synthetic titles whose hash can be pre-computed.
+- `expected-findings.md` — assertions:
+  - `verdict: approve` (override forces this)
+  - `decision.action: ship` (override forces this)
+  - `decision.rationale` contains the literal phrase "chain-of-rejections" AND names the resurface count
+  - `≥ 2` findings have `previously_rejected` populated with matching `rejected_at` and `new_evidence`
+  - `trace_log.rejections_loaded` is non-empty with entries matching the seeded rejections
+  - `scenarios_considered` contains `rejection memory: loaded`
+  - Rule 1 (block), rule 2 (needs-attention), rule 3 (refactor-recommended) do NOT fire regardless of what other in-diff + reachable findings the diff would produce
+- `last-snapshot.md` — captured after first real run (same convention as existing fixtures).
+
+**Estimated effort:** 30-60 minutes once a real `/devil-review --reject` saha test provides seed snapshot data. Without saha data, 1-1.5 hours crafting from scratch with synthetic hashes — and higher risk of locking in incorrect behavior because the fixture tests "what the code does today" rather than "what the code should do after real calibration".
+
+**Dependency:** Ideally a real `/devil-review --reject` saha test that produces ≥2 re-raised findings. The test provides both (a) the seed data for the fixture and (b) calibration signal for whether the `≥2` threshold is correct. Writing the fixture before saha calibration risks locking in a threshold or rationale format that real usage says should change.
+
+**Trigger to activate:**
+- First real-world `/devil-review --reject` saha test that produces ≥2 re-raised findings in a session — use the saha snapshot as fixture seed and the calibration observation as the basis for `expected-findings.md` assertions
+- OR a reported regression suspicion on rule 0 (threshold change, forced-verdict logic, precedence) — fixture becomes immediate priority to lock behavior
+- OR any modification to rule 0 in methodology or output-schema — the fixture lands alongside the modification, not as a follow-up
+
+Until one of these fires, the override-0 coverage gap is a known accepted gap per the tracked-items revision log entry in v1.18.0's shipping record.
+
+**Risk:** Low for the fixture itself once saha data exists. Medium if written from scratch pre-calibration — could lock in wrong `expected-findings.md` assertions. Mitigation: explicitly wait for saha data before writing; the gap is documented and tracked.
+
+**Semver:** No version bump for adding a fixture (patch at most). Fixture changes don't propagate to user-visible plugin behavior.
+
+---
+
 ## Sequencing recommendation
 
 Not a fixed order — pick based on observed need.
@@ -669,8 +714,9 @@ Phase 3 is never strictly "done" — it's a menu, not a milestone. But we can ca
 - [x] User rejection memory shipped (Item 10) — v1.18.0 on 2026-04-15, schema v1.14 with `findings[].previously_rejected` + `trace_log.rejections_loaded` + chain-of-rejections verdict override (rule 0) + sidecar storage at `.claude/devil-review/<session>/rejections.json` (sidecar schema v1.0). UX relocated from a sibling `/devil-reject` skill to a `--reject <CSV>` inline flag on `/devil-review` in v1.19.0 (same-day); schema and sidecar format unchanged across the two versions
 - [x] Finding reachability classification shipped (Item 11) — v1.17.0 on 2026-04-15, schema v1.13 with required `findings[].reachability` enum + default-to-reachable backward-compat + verdict filter mirroring v1.10's scope filter
 - [x] Evidence gate for external claims shipped (Item 12) — v1.16.0 on 2026-04-15, schema v1.12 with `findings[].evidence_sources` + `trace_log.external_claims_verified` + `unverified-external-claim` reason code; methodology Claim verification pass extended from four to five steps
+- [ ] Fixture 04 exercising chain-of-rejections override (Item 14) shipped OR saha evidence shows override 0 does not fire in practice (gap remains acceptable)
 
-All twelve remain open indefinitely without blocking any user-facing feature. Items 1, 6, 7, 8, 9, 10, 11, 12 are shipped. Items 2, 3, 4, 5 remain demand-gated.
+All thirteen remain open indefinitely without blocking any user-facing feature. Items 1, 6, 7, 8, 9, 10, 11, 12 are shipped. Item 14 is spec'd but unstarted (trigger-gated on saha data). Items 2, 3, 4, 5 remain demand-gated.
 
 ---
 
@@ -687,3 +733,4 @@ All twelve remain open indefinitely without blocking any user-facing feature. It
 - **2026-04-15 (same-day, saha-test-#3 series continues)** — Item 11 (finding reachability classification) shipped as v1.17.0 / schema v1.13. Required `findings[].reachability` enum added (`reachable | hypothetical | requires-specific-config`), default-to-reachable backward-compat rule, verdict filter extended to `scope == "in-diff"` AND `reachability == "reachable"`. Pattern identical to Item 9's scope filter from v1.10 — same default-to-X replay preservation, same hard-cap interaction, same anti-pattern mitigation. Saha test #3 friction resolved: the priority confusion between a `confidence: 0.7` hypothetical Windows-specific finding and a `confidence: 0.85` reachable main-flow bug — reachability is a structural property of the code path, confidence is epistemic uncertainty about the claim, and the two should not collapse into one axis. Self-review caught a cross-section consistency bug during dogfooding (Scope section's Verdict interaction stated scope-only filter while Severity axes described the full three-way filter) — rolled into the shipping commit per self-review discipline. Only Item 10 (user rejection memory) remains in the saha-test-#3 menu.
 - **2026-04-15 (same-day, saha-test-#3 series complete)** — Item 10 (user rejection memory) shipped as v1.18.0 / schema v1.14. Largest Phase 3 item to date: new sibling `/devil-reject` skill (`plugins/devil-review/skills/devil-reject/`), new session-scoped sidecar `.claude/devil-review/<session>/rejections.json` (with its own sidecar schema_version "1.0" independent of the main payload schema), new Step 3b "Rejection memory load" substep in `/devil-review`, new required `trace_log.rejections_loaded`, new optional `findings[].previously_rejected`, and new chain-of-rejections verdict override (rule 0, highest precedence). The override is the automation-facing dual of v1.11's chain-closing override: chain-closing said "fixes are working, don't escalate to refactor"; chain-of-rejections says "user and reviewer disagree, stop iterating". The ≥2 resurface threshold is an uncalibrated starting value per the discipline used in v1.10 patch-chain and v1.11 chain-closing thresholds. Pre-ship self-review caught zero text-drift inconsistencies after the "four rules → five rules" rename and hash-normalization synchronization check across four surfaces. A post-ship adversarial review of the full saha-test-#3 shipping series (including this commit) surfaced two low-severity design_debt items tracked for v1.18.x — sidecar `schema_version` written but not validated by readers, and fixtures 01/02/03 do not exercise the chain-of-rejections override (rule 0) because all three fixtures have resurface_count=0. Pre-ship self-review caught text-level drift; post-ship review caught design-pattern gaps — different scopes, both worth noting for the shipping-series record. The saha-test-#3 menu is now complete (Items 12 → 11 → 10 shipped in sequence); Items 1, 6, 7, 8, 9, 10, 11, 12 are shipped total across the full Phase 3 run so far, with Items 2, 3, 4, 5 remaining demand-gated per original policy.
 - **2026-04-15 (same-day, v1.19.0 UX relocation)** — v1.19.0 replaced the `/devil-reject` sibling skill (shipped in v1.18.0) with a `--reject <CSV>` inline flag on `/devil-review`. User-surfaced UX friction: the two-skill approach (review → see findings → invoke separate skill → re-review) required two command invocations when the common workflow wanted one. The inline flag collapses this to a single call — `/devil-review --reject 2,5` records rejections against the most recent prior snapshot and runs a fresh review in one step. Schema unchanged at 1.14, sidecar `rejections.json` format unchanged (still schema_version "1.0"), verdict override rule 0 unchanged, and `findings[].previously_rejected` + `trace_log.rejections_loaded` semantics unchanged. What changed: the skill directory `plugins/devil-review/skills/devil-reject/` was deleted (147 lines gone); Step 1 of `/devil-review` SKILL.md gained `--reject` argument parsing; Step 3b's "Rejection memory load" was restructured into 7 explicit substeps with substep 1 now the authoritative hash-normalization spec (moved from the deleted /devil-reject Step 4) and substep 2 the `--reject` flag application; three new error codes added for --reject error handling (reject_without_prior, reject_index_out_of_range, rejections_file_malformed). Minor bump (not major) per CLAUDE.md semver — no output schema change, no verdict semantic change, just slash-command surface rearrangement. User explicitly accepted the breakage for any intermediate `/devil-reject` invocations ("backward yapmaya gerek yok"); in practice the v1.18.0 skill existed for minutes in this session and had no deployed users. The two v1.18.x tracked items (sidecar schema_version validation gap, override-0 fixture coverage gap) are now tracked for v1.19.x — the relocation did not address either of them, and they remain patch-worthy independently of the UX change.
+- **2026-04-15 (same-day, post-v1.19.0 planning)** — post-ship review's two tracked follow-up items formalized with distinct homes based on scope. (a) **Sidecar schema_version validation** (~5 lines, zero-risk until sidecar evolves): recorded as an inline TODO comment in `SKILL.md` Step 3b substep 3 rather than a full plan item. Full Item spec would be overkill for a 5-line fix tied to a deterministic trigger (next sidecar v1.1 field addition); the TODO sits next to the code that needs the fix and fires naturally when a future maintainer touches those paths. Item number intentionally skipped (the plan jumps from Item 12 to Item 14). (b) **Fixture 04 exercising chain-of-rejections override (Item 14)** added as a formal plan item with goal, shape, trigger, and risk. Full item spec is warranted because the work is non-trivial (30-60 min post-calibration, longer pre-calibration), the trigger is softer (saha data required to avoid premature lock-in), and the risk of writing pre-calibration is real (locks in current behavior rather than correct behavior). Trigger: first real `/devil-review --reject` saha test with ≥2 re-raised findings, OR regression suspicion on rule 0, OR any modification to rule 0 semantics. Until one of these fires, the override-0 coverage gap is accepted per tracking discipline. No version bump this revision (doc-only); plan doc convention.
