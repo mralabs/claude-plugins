@@ -1,7 +1,7 @@
 # devil-review — Phase 3 Plan
 
-**Status:** Item 1 shipped 2026-04-14 (v1.10.0). Items 6, 7, 8, 9 shipped 2026-04-15 (v1.12.0 / v1.13.0 / v1.14.0 / v1.15.0). Items 2, 3, 4, 5 remain unstarted (demand-gated per original policy).
-**Plugin version at time of writing:** v1.3.2 (initial spec); v1.10.0 (Item 1 shipping); v1.11.0 (auto-detect prior-review); v1.12.0–v1.15.0 (saha-test-#2 shipping series 2026-04-15)
+**Status:** Item 1 shipped 2026-04-14 (v1.10.0). Items 6, 7, 8, 9 shipped 2026-04-15 (v1.12.0 / v1.13.0 / v1.14.0 / v1.15.0 + v1.15.1 patch). Items 10, 11, 12 added to menu 2026-04-15 post-saha-test-#3 — unstarted. Items 2, 3, 4, 5 remain unstarted (demand-gated per original policy).
+**Plugin version at time of writing:** v1.3.2 (initial spec); v1.10.0 (Item 1 shipping); v1.11.0 (auto-detect prior-review); v1.12.0–v1.15.0 (saha-test-#2 shipping series 2026-04-15); v1.15.1 (patch correction); 2026-04-15 saha-test-#3 revision captures Items 10/11/12
 **Scope:** Everything deferred out of v1.3.x. Phase 1 (architecture) and Phase 2 (content) landed in v1.3.0; patches in v1.3.1/v1.3.2. Phase 3 is the "durability & maturation" bucket — optional, pickable à la carte after real usage feedback.
 
 > **Guiding principle:** Don't design for hypothetical requirements. Every Phase 3 item is justified against an observed gap, not a theoretical one. Use the skill in real PRs first; let friction dictate priority.
@@ -446,6 +446,164 @@ Definitions:
 
 ---
 
+## Item 10 — User rejection memory
+
+**Goal:** When a user decides a finding is not actionable and dismisses it, record that decision so subsequent runs suppress the repeat (unless new evidence surfaces). Today's plugin has no mechanism for "user has already told me this finding is not a concern" — Round 1 flags, user skips, Round 2 re-flags same location with same logic. The plugin's snapshot-based prior-review loop catches prior *reviewer* drops but not prior *user* dismissals.
+
+**Why it matters (observed, not speculative):** Saha test #3 reviewer flagged this as the single biggest UX friction across two rounds on a real project. Specific example: Windows trailing-backslash finding — Round 1 flagged, user assessed as not-a-real-concern, skipped; Round 2 came back with identical logic and re-flagged. Combined with saha test #2's severity-dampening feature, the silent re-raise creates a patch-chain-of-rejected-findings pattern: the reviewer keeps surfacing the same dismissed claims round after round, and the user either re-dismisses each round (friction) or starts tuning the reviewer out (worse — loses signal).
+
+**Non-goals:**
+- Not a permanent blocklist. Rejections are session-and-target scoped (same discipline as prior-review snapshots). A new session on the same target starts fresh. Rationale: stale rejections from months ago should not mask findings that are now valid because surrounding code has changed.
+- Not a global "mute this class of finding". Each rejection is tied to a specific file+line+title hash. Similar finding elsewhere re-fires.
+- Not automatic. The user must explicitly reject — the plugin cannot infer "user skipped = rejection" from silence.
+
+**Shape:**
+
+1. **Rejection storage.** New file at `.claude/devil-review/${CLAUDE_SESSION_ID}/rejections.json`:
+   ```json
+   [
+     {
+       "hash": "<sha256 of file:line:title-normalized>",
+       "file": "<path>",
+       "lines": "L<start>-L<end>",
+       "title": "<finding title>",
+       "rejected_at": "<ISO timestamp>",
+       "rationale": "<user-provided one-sentence reason or null>"
+     }
+   ]
+   ```
+
+2. **Rejection mechanism.** A new slash invocation or skill argument: `/devil-review --reject <finding-index> [<rationale>]`. When invoked post-review, appends the indexed finding to rejections.json. Alternative: a separate short skill `/devil-reject <N> [<reason>]` that reads the latest snapshot's finding #N and writes the rejection entry. Choice of UX deferred to implementation; both work.
+
+3. **Next-run suppression.** SKILL.md Step 3b extension: after loading the prior-review snapshot, also load rejections.json. Compute hash for each current candidate finding. If hash matches a rejection, either:
+   - **Suppress silently** if no new evidence (default path)
+   - **Re-raise with annotation** if new evidence exists — finding body leads with "Previously rejected on `<date>` with rationale `<text>`. New evidence: `<what changed>`." Severity and confidence carry from current analysis, not the prior rejection.
+
+4. **Schema addition (minor, v1.16.0 / schema v1.12).** Optional finding field:
+   ```json
+   "previously_rejected": {
+     "rejected_at": "<ISO>",
+     "prior_rationale": "<text or null>",
+     "new_evidence": "<sentence describing what is different this round>"
+   }
+   ```
+   Present only when a rejected finding is being re-raised with justification. Absent on fresh findings and on suppressed (not re-raised) rejections.
+
+5. **Verdict interaction (chain-of-rejections clause).** When `rejected_findings_resurfaced_count ≥ 2` (i.e., 2+ previously-rejected findings are re-raised this round), emit `decision.action: ship` AND `verdict: approve` with `rationale: "chain-of-rejections pattern — reviewer repeatedly surfacing user-dismissed findings; stop iterating, ship as-is"`. This is the automation-facing dual of Item 6's chain-closing override: that rule handled "fix worked"; this one handles "user and reviewer disagree about whether the finding is real".
+
+6. **Trace log addition.** `trace_log.rejections_loaded: [{hash, rejected_at}]` — visible evidence that rejections were consulted. Empty array valid when no rejections.json exists for this session+target. Absence of the field (when rejections.json does exist) is a grounding failure.
+
+**Estimated effort:** 4–5 hours. Largest Phase 3 item to date. New storage format, new slash command or skill argument, Step 3b extension, methodology section on rejection discipline, schema additions, fixture updates (at least one fixture should exercise rejection + suppression + re-raise with new evidence), README prose.
+
+**Dependency:** None strictly. Item 11 (reachability) shipping first would sharpen the rejection mechanism because hypothetical/unreachable findings are the ones most likely to be dismissed — rejection memory works best when the plugin itself correctly classified the finding's reachability upstream.
+
+**Risk:** Medium-high. New storage format (schema drift risk on rejections.json across future versions — needs its own small schema_version field). User-mechanism UX has to be usable — a clunky `/devil-review --reject` flow that nobody uses silently defeats the feature. Chain-of-rejections verdict clause has to be calibrated; a 2-rejection threshold is a starting value, may need revision after usage.
+
+**Semver:** minor bump (new optional field + new trace-log field + verdict rule extension). The rejections.json file is a sidecar, not a schema change proper.
+
+---
+
+## Item 11 — Finding reachability classification
+
+**Goal:** Add a per-finding `reachability` classifier orthogonal to severity and confidence. A bug that fires under specific obscure config is different from a bug that fires on the main path, and today's schema has no way to distinguish them except by squeezing the distinction into the `confidence` score (imperfect — high-confidence hypothetical is still "maybe never hit" whereas low-confidence reachable is "probably hits when triggered"). Only reachable findings drive verdict escalation, same pattern as `scope` filter.
+
+**Why it matters (observed, not speculative):** Saha test #3 reviewer explicitly called out the priority confusion: `confidence: 0.7` hypothetical finding (Windows trailing-backslash under specific config) vs `confidence: 0.85` reachable bug (async listener race on main flow) both presented as equal-weight findings in the output. Reader has to reverse-engineer which ones actually matter. The hypothetical finding's confidence score came from "reviewer is 0.7 sure this IS a bug in theory"; the reachable finding's confidence came from "reviewer is 0.85 sure this bug fires in practice". Different claims compressed into one dimension. Saha feedback: "readers of the trace log should see both".
+
+**Non-goals:**
+- Not a severity modifier. A reachable bug is not automatically more severe; it is just more urgent. Severity reflects impact when the bug fires; reachability reflects likelihood of firing.
+- Not a replacement for `confidence`. Confidence is the reviewer's epistemic uncertainty about whether the finding is right; reachability is a structural property of the code path. A reachable finding can still have low confidence (reviewer is not sure); a hypothetical finding can still have high confidence (reviewer is sure this WOULD be a bug if reached).
+
+**Shape:**
+
+1. **New required finding field** (schema v1.12):
+   ```json
+   "reachability": "reachable | hypothetical | requires-specific-config"
+   ```
+
+   Definitions:
+   - `reachable` — the bug fires under normal usage on at least one code path the reviewer can name. Include a concrete path in the finding body ("triggered by user clicking X", "fires on any PTY spawn", "any API request with empty body").
+   - `hypothetical` — the bug would fire if the conditions held, but the reviewer cannot currently name a code path that produces those conditions. Often precondition-dependent, often from reasoning-from-types rather than reasoning-from-paths.
+   - `requires-specific-config` — the bug fires only under a specific configuration, environment, or feature flag the reviewer has observed or can document. Stronger than hypothetical (the config exists) but weaker than reachable (the config is not on the main path).
+
+2. **Default-to-reachable rule** for backward compat. Pre-v1.12 payloads replayed under v1.12 rules treat absence as `reachable` — the existing verdict escalation behavior is preserved (everything drove verdict pre-v1.12 regardless of reachability; this preserves the same outcome).
+
+3. **Verdict filter extension.** Only `reachable` findings drive verdict escalation:
+   - `correctness_severity` derived from correctness findings with `scope: in-diff` AND `reachability: reachable`
+   - `design_debt_severity` same filter
+   - `block` rule requires reachable correctness critical/high
+   - `needs-attention` requires reachable material finding
+   
+   `hypothetical` and `requires-specific-config` findings emit transparently but do not escalate. Pattern identical to `scope` filter from v1.14.0.
+
+4. **Markdown template addition.** Per-finding line:
+   ```
+   - **Reachability**: <reachable | hypothetical | requires-specific-config>
+   ```
+
+5. **Methodology addition.** New "Reachability classification" subsection in Calibration rules. Decision tree:
+   - Can you name a concrete call path from a user action, cron, boot, API route, or event to the claimed bug? → `reachable`
+   - Can you name the specific config/flag/environment that would make the bug reachable? → `requires-specific-config` (name it in body)
+   - Neither of above — bug is inferred from types, schemas, or general reasoning without a traced path? → `hypothetical`
+   
+   Bias toward `hypothetical` when uncertain; promote to `requires-specific-config` only when the specific thing is named.
+
+**Estimated effort:** 1.5–2 hours. Schema field, methodology subsection, verdict-rule update (extend the scope filter to also filter on reachability), markdown template update, fixture updates (fixtures 01/03 assert `reachability: reachable` on their findings).
+
+**Dependency:** None. Shippable independently. Best shipped before Item 10 because rejection memory works better when reachability is correctly classified upstream — hypothetical findings are the most common rejection target, and a user seeing a hypothetical finding tagged as such may not need to reject it at all (it is self-flagged as low-priority).
+
+**Risk:** Low. Additive schema + additive verdict filter. Main risk is reviewer over-classifying as `reachable` to drive verdict up (the in-diff-overreach pattern from Item 9, applied to reachability). Mitigation: the decision tree requires naming a concrete call path for `reachable` — no path = not reachable.
+
+**Semver:** minor bump.
+
+---
+
+## Item 12 — Evidence gate for cross-boundary external claims
+
+**Goal:** Extend the v1.12.0 Claim verification pass with a specific clause for claims about **external behavior** — third-party library semantics, standard library behavior, OS/runtime specifics, protocol details. Today's claim verification catches over-claims about the diff and surrounding read code, but treats "Rust PathBuf strips trailing separators" or "MSVCRT parses argv with ... semantics" as free assertions as long as they sound plausible. These claims can be verified with a single documentation query or a short runtime observation — the reviewer currently doesn't ask.
+
+**Why it matters (observed, not speculative):** Saha test #3 flagged this concretely: "PathBuf's trailing separator strip behavior could be verified in Rust stdlib docs with one query — reviewer didn't ask." And "MSVCRT argv parse quirks could be checked against published docs — reviewer asserted behavior without source." These unverified external claims drive findings that may be entirely wrong, and the Claim verification pass doesn't currently catch them because the "evidence in diff/code" step applies only to local code, not to external library behavior.
+
+**Non-goals:**
+- Not a full dependency audit. Reviewer is not expected to read the full source of every imported library.
+- Not a blocker on findings that cite well-established, universally-known behavior (e.g., "JSON does not allow trailing commas"). Only claims whose specific form is version/platform-dependent need evidence.
+
+**Shape:**
+
+1. **Methodology extension.** Add a subsection to "Claim verification pass (pre-emit)" titled "Cross-boundary external claims":
+   
+   When a load-bearing claim references behavior of external systems — third-party libraries (including stdlib), OS runtimes, protocols, file formats, shell semantics — the four-step verification gains a mandatory fifth step:
+   
+   5. **Evidence-cite external claims.** Name the source: a docs URL (via WebFetch), a source-code file:line (via clone + read), a runtime observation (via Bash command + result), or a published specification. The `evidence_source` must be specific enough for a consumer to verify independently. Generic "stdlib says so" or "docs mention this" without a pointer does not qualify.
+   
+   Findings whose load-bearing claim depends on an external assertion without `evidence_source` must either: (a) gather evidence before emit, or (b) drop severity and confidence by one level each and tag the claim as `evidence: unverified` in the finding body, or (c) drop the finding entirely. The third option is preferred when the reviewer cannot reasonably gather evidence (e.g., proprietary binary, no docs available, no runtime access).
+
+2. **New optional finding schema field** (v1.12):
+   ```json
+   "evidence_sources": [
+     {
+       "claim": "<one-sentence claim about external behavior>",
+       "source_type": "docs-url | source-file | runtime-observation | specification",
+       "source": "<URL, file:line, command+output, or spec identifier>",
+       "verified_at": "<ISO timestamp of verification>"
+     }
+   ]
+   ```
+   Empty array when no external claims in the finding. Populated when external claims exist and were verified. Absent findings interpret as "no external claims" under the default-to-empty rule.
+
+3. **Unverified tag.** When external claim is load-bearing AND evidence could not be gathered AND reviewer elects option (b) above, add to finding body: `evidence: unverified — <brief reason evidence was not gathered>`. This is prose, not a schema field. Consumers that care can grep for the string.
+
+4. **Trace log field.** `trace_log.external_claims_verified: <integer>` — count of external claims the reviewer verified in this review. 0 is valid (no external claims). Purely observability; lets consumers see "did this review actually do research or not".
+
+**Estimated effort:** 1.5–2 hours. Methodology extension, schema field, trace log field, fixture updates (at least one fixture with an external claim and its evidence, to validate the pattern).
+
+**Dependency:** None. Shippable independently. Would compound with Item 7 (claim verification) which is already shipped.
+
+**Risk:** Low. Pure methodology + additive schema. Main risk: reviewer performs "evidence gathering" performatively (fetches a URL but doesn't actually validate the claim against its content) — similar concern to Item 7's original "performative verification" risk. Mitigation: `evidence_source` must be specific (docs URL, not just "the docs"); methodology instruction that reviewer must quote the relevant passage in the finding body when it's a docs URL.
+
+**Semver:** minor bump.
+
+---
+
 ## Sequencing recommendation
 
 Not a fixed order — pick based on observed need.
@@ -464,7 +622,13 @@ Not a fixed order — pick based on observed need.
 7. **Item 4 (deferred domains).** Only on real demand.
 8. **Item 5 (dynamic discovery).** Only at scale (12+ domains or external contributor).
 
-**Do not batch.** Each item is independent and shippable alone. Batching increases risk and obscures which change caused what behavior shift. This is especially true for Items 6–9 which each touch schema — batching makes regression bisection across fixtures harder.
+**Post saha-test #3 recommended sequence (2026-04-15, extends the saha-test-#2 sequence above):**
+
+9. **Ship Item 12 (evidence gate for external claims) next.** Smallest schema footprint (one optional finding field + one trace_log integer), pure methodology extension to Item 7's Claim verification pass. Compounds on Item 7's credibility floor — an evidence-gated external claim is a verified external claim. Low risk.
+10. **Then Item 11 (reachability classification).** New required field on findings, verdict rule filter extension (mirroring Item 9's scope filter). Medium-size shipping. Best before Item 10 because rejection memory works better when the plugin correctly flags hypothetical findings as hypothetical — hypothetical-tagged findings are the most common rejection target and being self-flagged reduces the rejection pressure.
+11. **Then Item 10 (user rejection memory).** Largest Phase 3 item to date — new sidecar storage format, new UX for rejection, Step 3b extension, schema additions, chain-of-rejections verdict clause. Shipping last minimizes rework because Item 11's reachability classifier and Item 12's evidence gate both reduce the finding surface that would otherwise pressure users toward rejection in the first place.
+
+**Do not batch.** Each item is independent and shippable alone. Batching increases risk and obscures which change caused what behavior shift. This is especially true for Items 6–12 which each touch schema — batching makes regression bisection across fixtures harder.
 
 ---
 
@@ -481,8 +645,11 @@ Phase 3 is never strictly "done" — it's a menu, not a milestone. But we can ca
 - [x] Self-fact-check pass shipped (Item 7) — v1.12.0 on 2026-04-15, schema v1.8 with `findings_dropped_in_verification` + methodology "Claim verification pass" section
 - [x] Project-rule citation loader shipped (Item 8) — v1.13.0 on 2026-04-15, schema v1.9 with `project_rules_loaded` + `rule_refs` with verbatim-quote gate
 - [x] Finding scope tag shipped (Item 9) — v1.14.0 on 2026-04-15, schema v1.10 with `findings[].scope` + verdict filter
+- [ ] User rejection memory shipped (Item 10) OR saha evidence shows the silent re-raise pattern is not an observed problem in practice
+- [ ] Finding reachability classification shipped (Item 11) OR saha evidence shows `confidence` alone is sufficient to distinguish hypothetical from reachable findings
+- [ ] Evidence gate for external claims shipped (Item 12) OR saha evidence shows cross-boundary unverified claims are not materially affecting review quality
 
-All nine remain open indefinitely without blocking any user-facing feature. Items 1, 6, 7, 8, 9 are shipped. Items 2, 3, 4, 5 remain demand-gated.
+All twelve remain open indefinitely without blocking any user-facing feature. Items 1, 6, 7, 8, 9 are shipped. Items 10, 11, 12 are spec'd but unstarted. Items 2, 3, 4, 5 remain demand-gated.
 
 ---
 
@@ -493,3 +660,5 @@ All nine remain open indefinitely without blocking any user-facing feature. Item
 - **2026-04-14 (same-day)** — Item 6 (structured prior-review attribution) added to the menu. Trigger: first saha test of `--prior-review` flag (pre-v1.11.0 auto-detect) in a real review produced explicit attribution language ("prior findings resolved, new findings introduced by fix, not a patch-chain pattern") and dampened an otherwise likely `refactor-recommended` verdict to `needs-attention`. Reviewer identified the mechanism as the single most valuable part of the patch-chain detection feature, but noted the attribution is emitted as prose (in `theme_assessment` and finding body annotations) rather than structured fields. Item 6 spec captures the fields and verdict-derivation integration for when automation consumers arrive or prose attribution proves insufficient. Unstarted; gated on observable demand.
 - **2026-04-15** — Saha test #2 (two-round devil-review on a real project) produced seven concrete observations. Three of them (finding-diff across rounds, severity recalibration on re-surfaced findings, structured `decision` field for CI/`/loop` gating) triggered Item 6's original triggers and expanded its spec: added severity dampening rule for `carries-over` findings, added top-level `decision` block with `action | patch_chain_detected | iteration_count | rationale`. Four new items added to the menu — Item 7 (self-fact-check pass, closing two observed factual errors in reviewer output), Item 8 (project-rule citation loader, making implicit rule-following explicit), Item 9 (finding scope tag, resolving in-diff vs pre-existing tension). Sequencing revised: Items 7 → 8 → 9 → 6-expanded, because credibility floor (7) and verified-claim citations (8) compound on each other, and Item 6's larger schema footprint benefits from edge cases surfaced by 7–9. Plugin at v1.11.0; no version bump this revision (doc-only).
 - **2026-04-15 (same-day, shipping series)** — Items 7, 8, 9, 6-expanded all shipped in sequence per the planned order: v1.12.0 (Item 7, schema v1.8), v1.13.0 (Item 8, schema v1.9), v1.14.0 (Item 9, schema v1.10), v1.15.0 (Item 6 expanded, schema v1.11). Four schema bumps across four commits, each with per-commit self-review rolled in; fixtures 01/02/03 updated at every bump. Compatibility property preserved: v1.7 consumers parse v1.11 payloads, and v1.7-era verdict calculations replay identically under v1.11 rules because the four additive defaults (correctness on finding_type absent, in-diff on scope absent, synth-decision on decision absent, none on severity axes absent) compose correctly. The saha-test-#2 shipping series is the largest single-session Phase 3 advance to date — Items 2, 3, 4, 5 remain unstarted per "real demand only" policy. Next saha test after this series is the re-validation trigger for Item 3 (agent: Explore decision).
+- **2026-04-15 (same-day, v1.15.1 patch)** — v1.15.1 shipped as a patch correction after applying devil-review's own methodology (dogfooding) to the six shipping commits of the saha-test-#2 series. Two concrete schema-methodology inconsistencies surfaced: (a) `findings[].prior_relation.category` enum allowed `resolved` at finding-level despite methodology forbidding it; narrowed to three values. (b) Legacy-payload `decision` synthesis used a binary approve-vs-iterate rule that produced verdict/action contradictions on `refactor-recommended` payloads; replaced with a full verdict→action map. Schema version stayed at 1.11 (no field shape changes). Adversarial self-review validated the methodology — plugin applied to its own output caught real bugs, confirming the shipping-series discipline works end-to-end.
+- **2026-04-15 (same-day, saha test #3)** — Saha test #3 (two-round devil-review on another project, running v1.15.1) produced four validations (confirming findings_dropped_in_verification, lift_considered + no-patches.md mapping, severity+confidence+scope scoring, and finding a real bug all work as designed) and four concrete gaps mapping to three new items. Three items added to the menu: **Item 10** (user rejection memory — storage + mechanism for persisting user's dismissal decisions across rounds, including a chain-of-rejections verdict clause), **Item 11** (finding reachability classification — per-finding `reachable | hypothetical | requires-specific-config` orthogonal to severity/confidence, with verdict filter paralleling the v1.14.0 scope filter), **Item 12** (evidence gate for cross-boundary external claims — extension to Item 7's Claim verification pass requiring `evidence_source` for third-party/stdlib/OS behavior claims, else drop or tag unverified). A fourth observation (verdict/ship-blocker semantics for low-severity-only reviews) is resolved transitively by Item 11's reachability filter — no standalone item needed. A surfacing observation (prior_review_summary counts not prominent enough in markdown) is a minor polish deferred. Sequencing recommendation: Item 12 → Item 11 → Item 10 (smallest schema footprint first, largest last, with each item's output reducing the need for the next). Unstarted; no version bump this revision (doc-only).
