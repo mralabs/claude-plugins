@@ -133,6 +133,7 @@ Discipline:
 - Before re-planning an area that already has a plan doc, **read the existing doc first**. Do not re-derive from scratch — this is why plans persist across sessions.
 - Mark items as `✅ SHIPPED <date> (v<version> / schema v<N>)` inline in the item heading when they land; preserve the original spec text below with `**Original spec preserved below for reference.**` or similar.
 - Add a revision log entry for every saha test, trigger activation, or shipping series — the log is the "why did we do this when we did it" record.
+- **Append new revision log entries at the end of the list, after all prior entries.** Entries are chronological by design — the log reads as a causal audit trail, and a new entry inserted above a pre-existing one inverts cause and effect. This is learned from the saha-test-#3 shipping series, where three consecutive `docs()` commits each inserted a new shipping entry above the observation entry that triggered the series; the inversion compounded over the three commits and was caught only by post-ship adversarial review. Apply the same self-review discipline to plan-doc edits that applies to schema edits.
 - Plan doc revisions are committed as `docs(<plugin>): ...` — no version bump.
 
 ## Documentation updates on change
