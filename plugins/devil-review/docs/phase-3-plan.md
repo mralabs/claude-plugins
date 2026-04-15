@@ -1,7 +1,7 @@
 # devil-review — Phase 3 Plan
 
-**Status:** Item 1 shipped 2026-04-14 (plugin v1.10.0). Item 6 triggered + expanded 2026-04-15 (second saha test). Items 2–5 and Items 7–9 still unstarted.
-**Plugin version at time of writing:** v1.3.2 (initial spec); v1.10.0 (Item 1 shipping revision); v1.11.0 (auto-detect prior-review); 2026-04-15 revision captures saha test #2 feedback
+**Status:** Item 1 shipped 2026-04-14 (v1.10.0). Items 6, 7, 8, 9 shipped 2026-04-15 (v1.12.0 / v1.13.0 / v1.14.0 / v1.15.0). Items 2, 3, 4, 5 remain unstarted (demand-gated per original policy).
+**Plugin version at time of writing:** v1.3.2 (initial spec); v1.10.0 (Item 1 shipping); v1.11.0 (auto-detect prior-review); v1.12.0–v1.15.0 (saha-test-#2 shipping series 2026-04-15)
 **Scope:** Everything deferred out of v1.3.x. Phase 1 (architecture) and Phase 2 (content) landed in v1.3.0; patches in v1.3.1/v1.3.2. Phase 3 is the "durability & maturation" bucket — optional, pickable à la carte after real usage feedback.
 
 > **Guiding principle:** Don't design for hypothetical requirements. Every Phase 3 item is justified against an observed gap, not a theoretical one. Use the skill in real PRs first; let friction dictate priority.
@@ -195,7 +195,14 @@ load_priority: high
 
 ---
 
-## Item 6 — Structured prior-review attribution
+## Item 6 — Structured prior-review attribution ✅ SHIPPED 2026-04-15 (v1.15.0 / schema v1.11)
+
+**Shipping notes:** Landed as `feat(devil-review): v1.15.0 structured prior-review attribution (Item 6 expanded)`. Shipped the full expanded spec: per-finding `prior_relation`, `trace_log.prior_review_summary`, top-level `decision` block, severity dampening rule, chain-closing override clause (c) on verdict rule 3, and the distinction between session-scoped `decision.patch_chain_detected` and git-log-scoped `trace_log.patch_chain_risk.detected`. Fixtures 01/02/03 updated with decision block assertions covering ship/iterate/iterate cases and the legitimate verdict-vs-decision-action disagreement on fixture 01 (refactor-recommended + iterate at iteration 1).
+
+**Original spec preserved below for reference.**
+
+---
+
 
 **Goal:** Turn the prose attribution that prior-review-overlap currently produces into a machine-readable shape, so downstream automation (commit bots, PR decorators, dashboards) can reason about "which findings resolved, which carried over, which are new drift" without parsing narrative text.
 
@@ -295,7 +302,15 @@ Derivation rules:
 
 ---
 
-## Item 7 — Self-fact-check pass
+## Item 7 — Self-fact-check pass ✅ SHIPPED 2026-04-15 (v1.12.0 / schema v1.8)
+
+**Shipping notes:** Landed as `feat(devil-review): v1.12.0 self-fact-check pass (Item 7)`. Added methodology section "Claim verification pass (pre-emit)" with four bug classes (asymmetry error, unsupported reachability, scope inflation, counterfactual leak) and four-step verification procedure. New required `trace_log.findings_dropped_in_verification` array with six-value reason enum. Pre-output checklist bullet + Final check "claim-verified" bullet added. Fixtures 01/02/03 updated to assert field presence.
+
+**Original spec preserved below for reference.**
+
+---
+
+
 
 **Goal:** Before emitting findings, reviewer verifies each claim against the diff/code it references. Catch factual over-claims and unsupported reachability assertions in the reviewer's own output.
 
@@ -329,7 +344,15 @@ For each candidate finding:
 
 ---
 
-## Item 8 — Project-rule citation loader
+## Item 8 — Project-rule citation loader ✅ SHIPPED 2026-04-15 (v1.13.0 / schema v1.9)
+
+**Shipping notes:** Landed as `feat(devil-review): v1.13.0 project-rule citation loader (Item 8)`. Added SKILL.md Step 5.2b "Project review rules" with 10-file / 30 KB caps and the four glob patterns. New required `trace_log.project_rules_loaded` (array of `{path, bytes}`) and optional `findings[].rule_refs` (array of `{source, rule, quote}`) with verbatim-quote anti-hallucination gate. Methodology section "Project-rule citation" articulates the cite-don't-drop distinction from pre-review context, the multi-rule cap of 3, and the interaction with Claim verification. Fixture 01 ships a synthetic `.claude/rules/no-patches.md` rule file to exercise citation end-to-end; fixtures 02/03 assert empty-list behavior.
+
+**Original spec preserved below for reference.**
+
+---
+
+
 
 **Goal:** When the project contains explicit rule files (`.claude/rules/*.md`, `CLAUDE.md`, `code-review.md`, or similar), load them as part of review setup and tag each finding with the specific rule it cites.
 
@@ -379,7 +402,15 @@ Empty array when no applicable rule exists. Direct-quote requirement prevents th
 
 ---
 
-## Item 9 — Finding scope tag
+## Item 9 — Finding scope tag ✅ SHIPPED 2026-04-15 (v1.14.0 / schema v1.10)
+
+**Shipping notes:** Landed as `feat(devil-review): v1.14.0 finding scope tag (Item 9)`. Added required `findings[].scope` enum (`in-diff | pre-existing | future-work`) with default-to-in-diff rule for pre-v1.10 payload replay. Methodology section "Scope classification" articulates the decision tree, hard-cap interaction, verdict filter, and future-work anti-pattern warning. Severity axis derivation + verdict derivation rules 1-3 updated to filter on `scope == "in-diff"`. Compatibility property extended to note default composes correctly with default-to-correctness. Fixtures 01/03 assert `scope: in-diff`.
+
+**Original spec preserved below for reference.**
+
+---
+
+
 
 **Goal:** Classify each finding as `in-diff | pre-existing | future-work` so consumers can distinguish "fix this now" from "latent bug that existed before this PR" from "improvement for later".
 
@@ -446,12 +477,12 @@ Phase 3 is never strictly "done" — it's a menu, not a milestone. But we can ca
 - [ ] The `agent:` line in SKILL.md is either justified by a test or removed (Item 3)
 - [ ] At least one deferred domain has been added OR explicitly declared not needed (Item 4)
 - [ ] Dynamic discovery has been implemented OR explicitly declared premature at current scale (Item 5)
-- [ ] Structured prior-review attribution shipped (Item 6 expanded) OR a saha test explicitly shows prose attribution remains sufficient — as of 2026-04-15, saha test #2 triggered expansion; now gated on shipping, not on demand signal
-- [ ] Self-fact-check pass shipped (Item 7) OR saha evidence shows reviewer claims are grounded without it
-- [ ] Project-rule citation loader shipped (Item 8) OR saha evidence shows implicit rule-following is sufficient without explicit citation
-- [ ] Finding scope tag shipped (Item 9) OR saha evidence shows in-diff/pre-existing distinction does not matter in practice
+- [x] Structured prior-review attribution shipped (Item 6 expanded) — v1.15.0 on 2026-04-15, schema v1.11 with `prior_relation`, `prior_review_summary`, `decision` block, severity dampening, chain-closing clause (c)
+- [x] Self-fact-check pass shipped (Item 7) — v1.12.0 on 2026-04-15, schema v1.8 with `findings_dropped_in_verification` + methodology "Claim verification pass" section
+- [x] Project-rule citation loader shipped (Item 8) — v1.13.0 on 2026-04-15, schema v1.9 with `project_rules_loaded` + `rule_refs` with verbatim-quote gate
+- [x] Finding scope tag shipped (Item 9) — v1.14.0 on 2026-04-15, schema v1.10 with `findings[].scope` + verdict filter
 
-All nine can remain open indefinitely without blocking any user-facing feature. That is the point of Phase 3.
+All nine remain open indefinitely without blocking any user-facing feature. Items 1, 6, 7, 8, 9 are shipped. Items 2, 3, 4, 5 remain demand-gated.
 
 ---
 
@@ -461,3 +492,4 @@ All nine can remain open indefinitely without blocking any user-facing feature. 
 - **2026-04-14** — Item 1 (fixtures regression harness) shipped. Trigger: Phase 2.5 shipping (v1.8.1 + v1.9.0 + v1.10.0) produced 3 `no-test` findings in self-review, moving fixtures from "optional menu item" to "blocker on next prompt edit". Shipped 3 fixtures (guard-cluster-refactor, clean-refactor, unsafe-migration) with expected-findings assertions; no last-snapshot.md yet (captured on first real run). Items 2–5 remain unstarted per "real demand only" policy.
 - **2026-04-14 (same-day)** — Item 6 (structured prior-review attribution) added to the menu. Trigger: first saha test of `--prior-review` flag (pre-v1.11.0 auto-detect) in a real review produced explicit attribution language ("prior findings resolved, new findings introduced by fix, not a patch-chain pattern") and dampened an otherwise likely `refactor-recommended` verdict to `needs-attention`. Reviewer identified the mechanism as the single most valuable part of the patch-chain detection feature, but noted the attribution is emitted as prose (in `theme_assessment` and finding body annotations) rather than structured fields. Item 6 spec captures the fields and verdict-derivation integration for when automation consumers arrive or prose attribution proves insufficient. Unstarted; gated on observable demand.
 - **2026-04-15** — Saha test #2 (two-round devil-review on a real project) produced seven concrete observations. Three of them (finding-diff across rounds, severity recalibration on re-surfaced findings, structured `decision` field for CI/`/loop` gating) triggered Item 6's original triggers and expanded its spec: added severity dampening rule for `carries-over` findings, added top-level `decision` block with `action | patch_chain_detected | iteration_count | rationale`. Four new items added to the menu — Item 7 (self-fact-check pass, closing two observed factual errors in reviewer output), Item 8 (project-rule citation loader, making implicit rule-following explicit), Item 9 (finding scope tag, resolving in-diff vs pre-existing tension). Sequencing revised: Items 7 → 8 → 9 → 6-expanded, because credibility floor (7) and verified-claim citations (8) compound on each other, and Item 6's larger schema footprint benefits from edge cases surfaced by 7–9. Plugin at v1.11.0; no version bump this revision (doc-only).
+- **2026-04-15 (same-day, shipping series)** — Items 7, 8, 9, 6-expanded all shipped in sequence per the planned order: v1.12.0 (Item 7, schema v1.8), v1.13.0 (Item 8, schema v1.9), v1.14.0 (Item 9, schema v1.10), v1.15.0 (Item 6 expanded, schema v1.11). Four schema bumps across four commits, each with per-commit self-review rolled in; fixtures 01/02/03 updated at every bump. Compatibility property preserved: v1.7 consumers parse v1.11 payloads, and v1.7-era verdict calculations replay identically under v1.11 rules because the four additive defaults (correctness on finding_type absent, in-diff on scope absent, synth-decision on decision absent, none on severity axes absent) compose correctly. The saha-test-#2 shipping series is the largest single-session Phase 3 advance to date — Items 2, 3, 4, 5 remain unstarted per "real demand only" policy. Next saha test after this series is the re-validation trigger for Item 3 (agent: Explore decision).
