@@ -68,9 +68,12 @@ Considered but not promoted:
 - ...
 
 Findings dropped in verification:
-- <original claim as first written> — reason: <unsupported-reachability | asymmetry-error | scope-inflation | counterfactual-leak | no-evidence-after-trace | narrowed-kept>
+- <original claim as first written> — reason: <unsupported-reachability | asymmetry-error | scope-inflation | counterfactual-leak | no-evidence-after-trace | narrowed-kept | unverified-external-claim>
 - ...
 (empty list `none` is valid when every candidate finding survived the Claim verification pass unchanged — omission is not; per methodology.md)
+
+External claims verified: <integer ≥0>
+(counts verification actions — `0` is valid when no finding referenced external-system behavior; absence is a grounding failure)
 
 ## Findings
 
@@ -89,6 +92,11 @@ Findings dropped in verification:
 **Rule citations** (optional, only when a loaded project rule applies):
 - `<path/to/rule.md>` — *<rule identifier>*: "<verbatim 1–2 line quote from the rule file>"
 - ...
+
+**Evidence sources** (optional, only when the finding's load-bearing claim references external-system behavior):
+- *<source_type>*: `<URL, file:line, command+output, or spec identifier>` — "<one-sentence claim the source validates>" (verified <ISO-8601 timestamp>)
+- ...
+(omit when no external claims; use body prose `evidence: unverified — <reason>` for option-(b) unverified tags per methodology)
 
 **Test coverage**: <one of the three canonical forms>
 - `no-test: <one-sentence explanation — where you looked>`
@@ -156,9 +164,11 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 
 > **Plugin v1.15.1 correction note (schema version stays at `"1.11"`).** Two corrections surfaced by post-v1.15.0 adversarial self-review were rolled into the 1.11 entry above without bumping schema version: (a) the finding-level `prior_relation.category` enum was narrowed from four values to three (removed `resolved`, which the methodology always said was not a finding-level value but the schema inadvertently allowed), and (b) the legacy-payload synthesis rule became a full verdict→action map instead of a binary approve-vs-iterate shortcut, so legacy `refactor-recommended` payloads synthesize to `stop-and-refactor` rather than the contradictory `iterate`. Schema_version is **not** bumped because no payload shape changed — only the enum-value subset at finding-level and the synthesis text. A v1.15.0 consumer that permissively accepted `category: resolved` on findings (never emitted in practice given v1.15.0 shipped immediately before v1.15.1) continues to work; a v1.15.1-aligned consumer rejects it.
 
+- `1.12` — added optional `findings[].evidence_sources` (array of `{claim, source_type, source, verified_at}` entries) and required `trace_log.external_claims_verified` (integer ≥0) for the evidence gate extending the Claim verification pass. Pairs with the new methodology rule "Evidence-cite external claims" (fifth step of the pre-emit verification pass). `source_type` enum: `docs-url | source-file | runtime-observation | specification`. `source` must be specific enough for a downstream consumer to verify the claim independently — a docs URL, a file:line into cloned or packaged source, a `Bash` command and observed output, or a published spec identifier. Empty `evidence_sources` array (or field absent) means "no external claims in this finding". `trace_log.external_claims_verified` counts **verification actions** (not findings, not source entries) — a single fetch validating three claims counts once; two independent verifications in one finding count twice. Added reason code `unverified-external-claim` to `findings_dropped_in_verification.reason` for findings dropped because the reviewer could not verify an external claim and the finding's load-bearing claim required it. No fields removed or retyped; v1.11 consumers parse v1.12 payloads without error. Compatibility property: v1.11 payloads re-validated under v1.12 rules produce identical verdicts — the evidence gate is a grounding/observability addition, not a verdict input. Default-to-empty rule for `evidence_sources` (absent → no external claims) and default-to-0 for `external_claims_verified` (absent → no external research performed) preserve pre-v1.12 behavior on replay.
+
 ```json
 {
-  "schema_version": "1.11",
+  "schema_version": "1.12",
   "verdict": "block | needs-attention | refactor-recommended | approve",
   "decision": {
     "action": "iterate | stop-and-refactor | ship",
@@ -255,9 +265,10 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
     "findings_dropped_in_verification": [
       {
         "original_claim": "<one sentence — the load-bearing claim as first written, before verification>",
-        "reason": "unsupported-reachability | asymmetry-error | scope-inflation | counterfactual-leak | no-evidence-after-trace | narrowed-kept"
+        "reason": "unsupported-reachability | asymmetry-error | scope-inflation | counterfactual-leak | no-evidence-after-trace | narrowed-kept | unverified-external-claim"
       }
     ],
+    "external_claims_verified": 0,
     "project_rules_loaded": [
       {
         "path": "<path/to/rule/file.md — must match a Step 5.2b glob result>",
@@ -301,6 +312,14 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
         "category": "carries-over | new-drift-from-fix | pre-existing-orthogonal",
         "prior_finding_ref": "<prior finding title quoted verbatim, or null>"
       },
+      "evidence_sources": [
+        {
+          "claim": "<one-sentence claim about external behavior>",
+          "source_type": "docs-url | source-file | runtime-observation | specification",
+          "source": "<URL, file:line, command+observed-output, or spec identifier — specific enough for independent verification>",
+          "verified_at": "<ISO-8601 timestamp of verification>"
+        }
+      ],
       "test_coverage": {
         "covered_by": "<path/to/test:line or null>",
         "why_missed": "<code>: <one-sentence explanation>"
@@ -333,7 +352,9 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - **`trace_log.acceptance_criteria_crosswalk`** is conditionally required. When the pre-review context step loads a spec with **structured acceptance criteria** (explicit "must" statements, numbered requirements, bulleted ACs, definition-of-done checklist), the crosswalk must be populated with one entry per AC — including ACs that pass. Empty array `[]` is valid only when no spec loaded OR the loaded spec has no structured ACs (prose-only narrative RFCs qualify for the empty-list exemption). In the empty-list case, `classification_notes` or a scenario line must explain why: e.g. `"no spec loaded for this diff"` or `"spec loaded but no structured ACs — crosswalk skipped"`. Each entry requires `ac` (the AC text quoted verbatim), `spec_location` (file:line or section heading), `status` (one of `implemented`, `ambiguous`, `missing`, `contradicted`), and `implementation` (file:line-range for `implemented` / `ambiguous` / `contradicted`; `null` for `missing`). `notes` is optional but recommended for non-`implemented` statuses. See the "Acceptance criteria crosswalk" section in `methodology.md`. Skipping this field when a spec with ACs is present is the same class of grounding failure as an empty `symbols_inspected` — the audit did not happen.
 - **`trace_log.project_rules_loaded`** is **unconditionally required** on every non-error run. Records which project-local review rule files SKILL.md Step 5.2b discovered and loaded. Each entry has two required fields: `path` (repo-relative path to the rule file) and `bytes` (size of the loaded content — after truncation if the 30 KB cap fired). Empty array `[]` is valid and expected when no rule candidate matched the Step 5.2b globs in the current project. Absence of the field is a grounding failure because it means the load step was skipped rather than run-and-empty. At most 10 entries per the Step 5.2b cap; when the skill truncated to stay under the 30 KB budget, the truncated file still appears in this array with its post-truncation byte count.
 - **`findings[].rule_refs`** is optional. Populate it when a finding corresponds to a rule articulated in one of the loaded project rule files (`trace_log.project_rules_loaded`). Each entry has three required fields: `source` (must match one of the paths in `trace_log.project_rules_loaded` — citing an unloaded file is a grounding failure), `rule` (short identifier — heading name from the rule file, numbered rule, or a one-sentence paraphrase appearing adjacent to the quote), and `quote` (a **verbatim 1–2 line string lifted literally from the rule file**; downstream consumers may and should string-search the cited file to verify). Paraphrased quotes, composite quotes assembled from non-adjacent passages, or "cleaned up" rule text are schema-invalid — consumers are entitled to reject findings whose quote strings do not appear in the cited file. Cap at 3 citations per finding; beyond that, split the finding or prune to the strongest rules. Empty array `[]` or omitting the field both mean "no applicable rule" — citation is opportunistic, not mandatory. See the "Project-rule citation" section in `methodology.md`.
-- **`trace_log.findings_dropped_in_verification`** is **unconditionally required** on every non-error run. It records the output of the Claim verification pass (see `methodology.md` section "Claim verification pass (pre-emit)"). Empty array `[]` is valid and expected when every candidate finding survived the pass unchanged — absence of the field is a grounding failure because it means the pass was skipped rather than run-and-clean. Each entry has two required fields: `original_claim` (one sentence, the load-bearing claim as first written before the pass fired) and `reason` (enum: `unsupported-reachability | asymmetry-error | scope-inflation | counterfactual-leak | no-evidence-after-trace | narrowed-kept`). Use `narrowed-kept` when the pass fired and the finding was rewritten with a tighter claim rather than dropped — the finding still appears in `findings` with its narrower version, and the original wider claim is logged here for auditability. Use `no-evidence-after-trace` when the pass could not locate supporting evidence for the claim even after re-reading the code paths the claim referenced. Do not use this field to silently smuggle in observations that were never candidate findings — it is a record of the pass's *drops and narrowings*, not a general-purpose scratchpad.
+- **`trace_log.findings_dropped_in_verification`** is **unconditionally required** on every non-error run. It records the output of the Claim verification pass (see `methodology.md` section "Claim verification pass (pre-emit)"). Empty array `[]` is valid and expected when every candidate finding survived the pass unchanged — absence of the field is a grounding failure because it means the pass was skipped rather than run-and-clean. Each entry has two required fields: `original_claim` (one sentence, the load-bearing claim as first written before the pass fired) and `reason` (enum, schema v1.12: `unsupported-reachability | asymmetry-error | scope-inflation | counterfactual-leak | no-evidence-after-trace | narrowed-kept | unverified-external-claim`). Use `narrowed-kept` when the pass fired and the finding was rewritten with a tighter claim rather than dropped — the finding still appears in `findings` with its narrower version, and the original wider claim is logged here for auditability. Use `no-evidence-after-trace` when the pass could not locate supporting evidence for the claim even after re-reading the code paths the claim referenced. Use `unverified-external-claim` (added in v1.12) when the finding's load-bearing claim depended on external-system behavior that the reviewer could not verify via docs, source, runtime, or specification, and the reviewer elected option (c) from the methodology rule (drop rather than tag as unverified or gather evidence). Do not use this field to silently smuggle in observations that were never candidate findings — it is a record of the pass's *drops and narrowings*, not a general-purpose scratchpad.
+- **`findings[].evidence_sources`** is optional (schema v1.12). Populate it when the finding's load-bearing claim references external-system behavior (third-party libraries including stdlib, OS runtimes, protocols, file formats, shell semantics, hardware) and the reviewer gathered evidence per step 5 of the Claim verification pass. Each entry has four required fields: `claim` (one sentence restating the external-behavior assertion), `source_type` (enum: `docs-url | source-file | runtime-observation | specification`), `source` (URL for `docs-url`, `path/to/file:line` for `source-file`, command and observed output for `runtime-observation`, spec identifier like `RFC 7231 §6.5.1` for `specification` — must be specific enough for independent verification), and `verified_at` (ISO-8601 timestamp of the verification action). Empty array `[]` or omitting the field both mean "no external claims in this finding"; both are valid. When the finding's body contains the literal string `evidence: unverified — <reason>`, the reviewer elected option (b) from the methodology rule — severity and confidence already dropped one notch each, and this array may remain empty for that specific claim. Paraphrased or imagined evidence sources are schema-invalid — downstream consumers may and should attempt to resolve the `source` to confirm it exists. For `runtime-observation`, the observed output must be reproducible (the same command on comparable hardware/OS produces the same output); non-deterministic observations must be reclassified as `specification` or dropped. Cap at 5 entries per finding; beyond that, split the finding or collapse claims that share a source.
+- **`trace_log.external_claims_verified`** is **unconditionally required** (schema v1.12, integer ≥0). Counts **verification actions** the reviewer performed, not finding entries and not `evidence_sources[]` entries. A single `WebFetch` that validates three separate claims counts once; two independent verifications in one finding (say, a docs fetch AND a runtime observation, each for a different claim) count twice. `0` is valid and expected when no finding referenced external-system behavior. Absence of the field is a grounding failure because it means the evidence gate was skipped rather than run-with-no-external-claims. Performative fetches that did not validate the claim against fetched content do not count — this is the same discipline as the quote-verbatim rule on `rule_refs`. The integer is observability, not gating; verdict derivation does not read it.
 - **`trace_log.patch_chain_risk`** is conditionally required. When SKILL.md Step 3b scans the git log and **any** of the three signals fires (`fix-prefix-cluster`, `same-file-hotspot`, `prior-review-overlap`), the field must be present and must carry a one-sentence `theme_assessment` regardless of whether `detected` ends up `true` or `false`. When no signal fires, the field may be omitted entirely. When the field is present: `detected` (boolean) records whether the reviewer's theme-vs-root judgment confirms the patch chain; `signals_fired` (array) lists which signals triggered the scan; `chain_depth` (integer) is the count of defensive commits in the window that match the prefix filter (0 if only the prior-review-overlap signal fired); `prior_commits` (array of one-line strings `"<sha> <subject>"`) records the evidence — omit or empty-array if the prior-review-overlap signal fired alone; `prior_review_file` is the resolved auto-detect path `.claude/devil-review/${CLAUDE_SESSION_ID}/<target-slug>.md` when Step 3b successfully loaded a snapshot, else `null` (file absent or rejected); `theme_assessment` is the mandatory one-sentence answer to the theme-vs-root gate; `recommendation` is a one-sentence note on what the signal means for this review. See the "Patch-chain detection" section in `methodology.md` and the data-collection rules in SKILL.md Step 3b. Emitting `detected: true` without a `theme_assessment` is the same class of grounding failure as an empty `symbols_inspected` — the reviewer skipped the gate. The `refactor-recommended` verdict rule 3 clause (a) reads `detected == true` from this field; clause (b) is independent of this field and remains reachable in v1.6 payloads.
 - **`findings` length must respect the hard cap** from `methodology.md` (3 under 500 lines, 5 under 1500, 3 per split group).
 - **`confidence`** is 0.0–1.0. Use it for your own uncertainty — do not soften severity to compensate for low confidence.
@@ -370,7 +391,7 @@ Followed by:
 
 ```json
 {
-  "schema_version": "1.11",
+  "schema_version": "1.12",
   "verdict": null,
   "error": "<error code: not_a_repo | gh_missing | empty_diff | shallow_clone_no_base | other>",
   "message": "<human-readable explanation>"

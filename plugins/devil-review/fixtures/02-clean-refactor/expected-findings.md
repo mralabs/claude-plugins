@@ -21,6 +21,7 @@ Loose must-contain / must-NOT-contain assertions. This fixture tests the *absenc
 - `trace_log.mutated_records_inspected` may be empty (no record writes in a rename), with `"no record writes in diff"` recorded as a scenario line.
 - `trace_log.findings_dropped_in_verification` is **present and empty** (`[]`). On a clean-refactor fixture no candidate findings exist in the first place, so the Claim verification pass has nothing to drop or narrow — but the field must still be emitted to prove the pass was run (per schema v1.8). Absence of the field is a regression signal.
 - `trace_log.project_rules_loaded` is **present**. Empty array `[]` is expected (no rule files in this fixture's scratch setup), but the field itself must be emitted to prove Step 5.2b ran (per schema v1.9). Absence of the field is a regression signal.
+- `trace_log.external_claims_verified` is **present** and equals `0` (schema v1.12 unconditional requirement). No findings → no external claims → no verification actions. Absence of the field is a regression signal; a non-zero value on a zero-findings fixture would indicate performative external research unrelated to any emitted finding, which violates the evidence-gate counting rule (the counter tracks verification actions tied to load-bearing claims, not incidental fetches).
 
 ### Decision block (schema v1.11)
 

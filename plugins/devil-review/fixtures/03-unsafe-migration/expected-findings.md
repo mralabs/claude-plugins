@@ -29,6 +29,8 @@ Loose must-contain / must-NOT-contain assertions.
 - `trace_log.symbols_inspected` contains the `User` type (consumers traced).
 - `trace_log.findings_dropped_in_verification` is **present** (schema v1.8 unconditional requirement). Empty `[]` or populated — both acceptable depending on whether the Claim verification pass narrowed/dropped any candidate claims during the review. Absence of the field is a regression.
 - `trace_log.project_rules_loaded` is **present** (schema v1.9 unconditional requirement). Empty `[]` is expected for this fixture since no rule files are set up; the field must be emitted regardless to prove Step 5.2b ran.
+- `trace_log.external_claims_verified` is **present** (schema v1.12 unconditional requirement). Expected value `0` — the NOT-NULL-on-existing-rows failure is a universally-known SQL semantics fact (not version/platform-dependent) and does not require an evidence source per the evidence gate's exclusion for well-established protocol consensus. Absence of the field is a regression. A non-zero value is acceptable only if the reviewer legitimately cited a Postgres-specific or MySQL-specific doc passage that the finding depends on; generic "SQL rejects NULL" citations are over-verification.
+- `findings[].evidence_sources` is **absent or empty `[]`** on the migration finding — the claim does not depend on version-specific external behavior. A populated array is not a regression per se, but expected to be absent given the finding's grounding in cross-vendor SQL semantics.
 
 ### Decision block (schema v1.11)
 
