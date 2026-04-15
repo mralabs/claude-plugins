@@ -144,6 +144,34 @@ When Step 3b's `<status>` is `loaded`, the loaded prior review's findings must a
 
 When Step 3b's `<status>` is `absent` or any `rejected-*` value, omit `prior_relation` on all findings and omit `trace_log.prior_review_summary` entirely. Both fields are meaningless without a loaded prior.
 
+### Rejection memory load (v1.14+)
+
+Independently of the prior-review snapshot load, also check for a rejection memory file at `.claude/devil-review/${CLAUDE_SESSION_ID}/rejections.json`. This file is written by the sibling `/devil-reject` skill when the user marks a finding as not actionable; the current run must consult it to avoid silently re-raising dismissed findings.
+
+1. **Load attempt.** Use `Read` on `.claude/devil-review/${CLAUDE_SESSION_ID}/rejections.json`.
+   - If the file does not exist → emit `trace_log.rejections_loaded: []` (empty array). This is the canonical fresh-session state.
+   - If the file exists but fails to parse as JSON, lacks the `schema_version` field, or lacks a `rejections` array, treat as malformed: emit `trace_log.rejections_loaded: []` and add a `scenarios_considered` line `rejection memory: rejected-malformed-json` so the rejected load is visible. Do not attempt suppression against a malformed file — findings flow through as if no rejection memory existed.
+   - If the file parses and has `rejections: [...]` → populate `trace_log.rejections_loaded` with one `{hash, rejected_at}` entry per rejection in the file. Empty array is valid when the file is present but `rejections: []`.
+
+2. **Per-candidate-finding suppression check.** For each candidate finding produced by the review (after Claim verification, before emit), compute the same normalized sha256 hash that `/devil-reject` computes (see that skill's Step 4 for the normalization: trim + lowercase file+lines + title-whitespace collapse + `:`-joined sha256). Compare against the loaded rejection hashes.
+
+3. **Suppression vs. re-raise.** When a candidate finding's hash matches a rejection entry, the reviewer must decide between two paths — **this is a reviewer-gated judgment, not an automatic rule**:
+
+   - **Suppress silently (default).** When the current analysis produces no materially new evidence for the finding, drop it from `findings` without emitting `previously_rejected`. Do NOT log the suppressed finding in `findings_dropped_in_verification` (that field is for Claim-verification drops, not user-rejection drops). Instead, add a `scenarios_considered` line: `rejection suppressed: <hash first 12 chars> — <file>:<lines>`. This is the visibility signal that a rejection fired.
+   - **Re-raise with annotation (exceptional).** When the current analysis has produced **new evidence** the prior rejection did not consider — a new call path, a new config, a new sibling field that changes the picture, a new data-flow the reviewer just traced — the finding is re-raised. Populate `findings[].previously_rejected` on the re-raised finding with `{rejected_at, prior_rationale, new_evidence}` where `new_evidence` is a one-sentence description of **what is concretely different this round**. The finding body must lead with "Previously rejected on `<rejected_at>` with rationale `<prior_rationale or "(none provided)">`. New evidence: `<new_evidence>`." followed by the usual finding content. Severity and confidence are carried from the current analysis, NOT from the prior rejection — the rejection did not set severity, and the reviewer's current read of severity may be higher or lower than any prior assessment.
+
+   If the reviewer cannot articulate concrete new evidence in one sentence, the path is **suppress silently**. Padding with "additional analysis revealed" does not clear the re-raise bar. This is the calibration signal: re-raise requires a nameable difference.
+
+4. **Chain-of-rejections verdict override.** Count the number of findings emitted with `previously_rejected` populated on the current run (i.e., the re-raised rejections). Call this the *resurface count*. When the resurface count is **≥ 2**, the reviewer is persistently surfacing user-dismissed findings; this is an automation signal to stop iterating, not to raise severity. Override verdict derivation as follows:
+   - Set `verdict: approve` and `decision.action: ship` regardless of what the standard rules would produce.
+   - Set `decision.rationale` to `"chain-of-rejections pattern — <resurface count> previously-rejected findings re-raised; stop iterating, ship as-is"` or equivalent.
+   - The re-raised findings still emit in `findings` for transparency — the override is on verdict/action, not on the findings list.
+   - This override fires **before** rules 1-4 in the standard verdict precedence. See the "Chain-of-rejections override" clause in `methodology.md`'s Verdict derivation section.
+
+   The threshold `≥ 2` is an uncalibrated starting value per the "threshold rationale" pattern used elsewhere. Real usage may surface the need to revise it in a v1.18.x patch; the rule is the discipline, the number is the starting guess.
+
+5. **Observability requirement.** The skill must always emit a `scenarios_considered` line of the form `rejection memory: <status>` on every non-error run, where `<status>` is exactly one of `loaded` (file exists and parsed), `absent` (file does not exist — fresh session for this path), or `rejected-malformed-json`. Parallels the prior-review ingestion status line.
+
 ### Theme-vs-root guard (reviewer-gated)
 
 Before emitting `patch_chain_risk.detected: true`, answer one sanity-check sentence: *"do the prior defensive commits address the same underlying root cause, or different root causes on the same file set?"*
@@ -279,6 +307,7 @@ Do not start writing output until you have:
 - classified every finding with a `reachability` tag — `reachable` (default; a concrete call path from an entry point can be named and is in the body), `requires-specific-config` (fires under a named config, flag, env var, or platform; the specific thing is named in the body), or `hypothetical` (bug inferred from types, schemas, or code-shape reasoning without a traced path). Only `reachable` findings drive verdict escalation; `hypothetical`/`requires-specific-config` findings are informational. Reachability is orthogonal to severity and confidence — do not collapse a hypothetical bug into low severity or low confidence; emit the honest severity and let the reachability tag do the calibration work. See the "Reachability classification" section in `methodology.md`
 - **if prior review loaded** — classified every finding's `prior_relation.category` (one of the three finding-level values: `carries-over | new-drift-from-fix | pre-existing-orthogonal`; `resolved` is `trace_log.prior_review_summary`-only), populated `trace_log.prior_review_summary` with per-category counts, and applied severity dampening to all `carries-over` findings. See the "Prior-relation classification" and "Severity dampening for carries-over findings" subsections in `methodology.md`. When no prior review was loaded, omit both fields entirely
 - emitted the top-level `decision` block (`action | patch_chain_detected | iteration_count | rationale`) on every non-error run — `decision` is the machine-readable automation signal that pairs with prose-facing `verdict`. See the "Decision derivation" subsection in `methodology.md`
+- loaded the rejection memory file per Step 3b's "Rejection memory load" subsection and populated `trace_log.rejections_loaded` (empty array `[]` is valid when no `rejections.json` exists for this session; absence of the field when the file exists is a grounding failure). For each candidate finding whose hash matches a rejection, chose suppress-silently or re-raise-with-`previously_rejected` per the reviewer-gated rule — re-raise requires concrete new evidence articulated in one sentence. Emitted the `scenarios_considered` line `rejection memory: <loaded | absent | rejected-malformed-json>`. Applied the chain-of-rejections override when the resurface count reached ≥2 — `verdict: approve` and `decision.action: ship` with the chain-of-rejections rationale. See the "User rejection memory" section in `methodology.md`
 - verified every required field listed in `output-schema.md` JSON rules is present — this is the backstop for future schema additions; when a new required field lands in a later version, the checklist does not need a per-field bullet if this backstop bullet catches it
 
 ---

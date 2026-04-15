@@ -32,6 +32,9 @@ Loose must-contain / must-NOT-contain assertions.
 - `trace_log.project_rules_loaded` is **present** (schema v1.9 unconditional requirement). Empty `[]` is expected for this fixture since no rule files are set up; the field must be emitted regardless to prove Step 5.2b ran.
 - `trace_log.external_claims_verified` is **present** (schema v1.12 unconditional requirement). Expected value `0` — the NOT-NULL-on-existing-rows failure is a universally-known SQL semantics fact (not version/platform-dependent) and does not require an evidence source per the evidence gate's exclusion for well-established protocol consensus. Absence of the field is a regression. A non-zero value is acceptable only if the reviewer legitimately cited a Postgres-specific or MySQL-specific doc passage that the finding depends on; generic "SQL rejects NULL" citations are over-verification.
 - `findings[].evidence_sources` is **absent or empty `[]`** on the migration finding — the claim does not depend on version-specific external behavior. A populated array is not a regression per se, but expected to be absent given the finding's grounding in cross-vendor SQL semantics.
+- `trace_log.rejections_loaded` is **present and empty `[]`** (schema v1.14 unconditional requirement). No rejection file exists for this fixture; the empty array proves the load step ran. Absence of the field is a regression.
+- `findings[].previously_rejected` is **absent** on the migration finding — fresh session, no prior rejection to match. The chain-of-rejections override (rule 0) cannot fire on this fixture because the resurface count is 0.
+- The `scenarios_considered` list contains the line `rejection memory: absent`.
 
 ### Decision block (schema v1.11)
 

@@ -32,6 +32,12 @@ Every diff has dark corners — the edge case nobody tested, the race condition 
 
 # Second round on the same diff — prior review auto-detected, no flag needed
 /devil-review
+
+# Mark a finding as not actionable — suppresses it on subsequent runs in this session
+/devil-reject 2
+
+# Reject with rationale (recorded alongside the rejection for audit trail)
+/devil-reject 2 windows-specific path issue, not a concern for our deployment
 ```
 
 Every successful run auto-writes its output to `.claude/devil-review/<session-id>/<target>.md`, scoped by Claude Code session ID and review target (working-tree, branch, or PR). A subsequent `/devil-review` on the same target in the same session automatically detects and loads that snapshot and uses it for multi-round analysis:
@@ -117,6 +123,7 @@ Verdict and decision can **disagree** in one important case: `verdict: needs-att
 - **Project-rule citation** — when the project ships review rule files (`.claude/rules/*.md`, root-level `code-review.md`/`REVIEW.md`/`CONTRIBUTING.md`, or `**/rules/*.md` one level deep), the skill loads them (up to 10 files, 30 KB total cap) and findings can cite specific rules with **verbatim 1–2 line quotes**. Paraphrased or composited quotes are schema-invalid — consumers can string-search the cited file to verify the quote is literally present. Turns the reviewer from opinion-source to rule-enforcer when the project has articulated its own review rules. CLAUDE.md and active specs are still loaded separately as pre-review context for the drop-spec-accepted-findings discipline; project rules are the citation direction.
 - **Scope classification** — every finding carries `scope: in-diff | pre-existing | future-work`. The default is `in-diff`; `pre-existing` is for bugs in code the diff did not touch that the reviewer surfaced while tracing consumers; `future-work` is for design suggestions that do not describe a bug today. Only `in-diff` findings drive verdict escalation (`block` / `needs-attention` / `refactor-recommended`). Pre-existing and future-work findings still count toward the hard cap and still emit as findings, but they do not block the ship decision — the PR author can see them and file follow-ups without them dragging verdict down. Resolves the "stay scoped to the diff vs. raise the latent bug I just found" tension transparently instead of dropping either side.
 - **Reachability classification** — every finding also carries `reachability: reachable | hypothetical | requires-specific-config`, orthogonal to severity, confidence, and scope. `reachable` requires the body to name a concrete call path from an entry point (user action, cron, boot, API route, event); `requires-specific-config` requires naming the specific config/flag/env-var/platform that gates the bug; `hypothetical` is for bugs inferred from types or patterns without a traced path. Only `reachable` findings drive verdict escalation (pattern identical to the scope filter). Resolves the priority confusion where a `confidence: 0.7` hypothetical Windows-specific finding reads as equal-weight with a `confidence: 0.85` async race on the main flow — reachability is a structural property of the code path, confidence is epistemic uncertainty about the claim, and the two shouldn't collapse into one axis. A `hypothetical` finding can still carry high confidence (reviewer is sure this WOULD be a bug if reached), and a `reachable` finding can still carry low confidence (reviewer is not sure their reading is right) — both cases are now representable.
+- **User rejection memory** — when the user decides a finding is not actionable, `/devil-reject <N> [rationale]` records the rejection in a session-scoped sidecar `.claude/devil-review/<session-id>/rejections.json`. On subsequent `/devil-review` runs in the same session, candidate findings whose normalized `file:lines:title` hash matches a rejection are either suppressed silently (default — the user's prior decision is respected) or re-raised with a `previously_rejected` annotation containing the prior rationale and a one-sentence statement of what **new evidence** justifies re-raising (a new call path, new config condition, new data-flow, new project rule, or new prior-review carries-over status). Re-raise without nameable new evidence does not clear the bar. A **chain-of-rejections verdict override (rule 0)** fires when 2+ previously-rejected findings are re-raised in a single review — the reviewer is persistently surfacing dismissed findings, and the override forces `verdict: approve` + `decision.action: ship` with an explanatory rationale. The override is the automation-facing dual of the v1.11 chain-closing override: chain-closing says "fixes are working, don't push refactor"; chain-of-rejections says "user and reviewer disagree, stop iterating". Resolves the saha-test-#3 friction where the same Windows trailing-backslash finding re-appeared round after round because the reviewer had no memory of the prior dismissal.
 - **Structured prior-review attribution + decision block + severity dampening** — when a prior review snapshot is loaded, each current finding is classified against the prior round with `prior_relation.category` (three values: `carries-over | new-drift-from-fix | pre-existing-orthogonal`), and `trace_log.prior_review_summary` rolls up per-category counts. A severity-dampening rule blocks silent demotion of recurring high-severity findings — either the finding keeps its prior severity with `carries-over` tag, or it reclassifies to `pre-existing-orthogonal` with a one-notch drop, never a silent downgrade. The top-level `decision` block (`action: iterate | stop-and-refactor | ship`, `patch_chain_detected`, `iteration_count`, `rationale`) is the machine-readable automation signal paired with `verdict`. A chain-closing override suppresses `refactor-recommended` when the prior round's findings were mostly resolved by the fix — iteration that is working does not get penalized as patch-churn. Catches the round-N+1 failure mode where a prior round's finding resurfaces at lower severity without credit and the patch-chain signal hides behind the apparent improvement.
 
 **Domain-specific checklists** — loaded automatically based on what files the diff touches. A single review can load several:
@@ -142,7 +149,7 @@ Verdict and decision can **disagree** in one important case: `verdict: needs-att
 
 ## Output format
 
-Every review emits two parts: a markdown section and a JSON fence for downstream tools.
+Every review emits two parts: a markdown section and a JSON fence for downstream tools. When a candidate finding matches a prior rejection hash and the reviewer elects to re-raise, the finding body leads with a `> Previously rejected on <date> with rationale <text>. New evidence: <one sentence>.` blockquote preamble, and the JSON carries a matching `previously_rejected` object — see the markdown template below.
 
 ```
 # Devil Review
@@ -204,6 +211,11 @@ Findings dropped in verification:
 External claims verified: <integer ≥0>
 (counts verification actions tied to load-bearing external-behavior claims; `0` is valid when no finding referenced external systems)
 
+Rejections loaded:
+- `<hash first 12 chars>...` rejected <ISO-8601 timestamp>
+- ...
+(empty list "none" is valid when no rejections.json file exists for this session; absence is a grounding failure)
+
 ## Findings
 
 ### [severity] <short title>
@@ -214,6 +226,9 @@ External claims verified: <integer ≥0>
 - **Reachability**: <reachable | hypothetical | requires-specific-config>
 - **Prior relation**: <carries-over | new-drift-from-fix | pre-existing-orthogonal>  (omit when no prior loaded)
 - **Confidence**: <0.0-1.0>
+
+> Previously rejected on <ISO-8601> with rationale <rationale or "(none provided)">. New evidence: <one concrete sentence>.
+(omit this blockquote when the finding was NOT previously rejected; when present, the JSON `findings[].previously_rejected` object carries the same fields)
 
 <what can go wrong, why this code path is vulnerable, likely impact>
 
@@ -230,7 +245,7 @@ External claims verified: <integer ≥0>
 **Test coverage**: <one of `no-test:`, `mock-bypass:`, or `missing-assertion:` followed by a one-sentence explanation>
 ```
 
-Followed by a JSON fence carrying the same data in a structured form for downstream tools (current schema version: **1.13**, see `skills/devil-review/output-schema.md` for the full contract). The schema is additive across patch and minor versions — older consumers parse newer payloads without error, but new fields (`failure_modes_considered`, `new_reader_paths`, `test_coverage`, `considered_not_promoted`, `acceptance_criteria_crosswalk`, `finding_type`, `lift_considered`, `correctness_severity`, `design_debt_severity`, `patch_chain_risk`, `findings_dropped_in_verification`, `project_rules_loaded`, `rule_refs`, `scope`, `decision`, `prior_relation`, `prior_review_summary`, `evidence_sources`, `external_claims_verified`, `reachability`) are only visible to consumers that bump to the matching schema version.
+Followed by a JSON fence carrying the same data in a structured form for downstream tools (current schema version: **1.14**, see `skills/devil-review/output-schema.md` for the full contract). The schema is additive across patch and minor versions — older consumers parse newer payloads without error, but new fields (`failure_modes_considered`, `new_reader_paths`, `test_coverage`, `considered_not_promoted`, `acceptance_criteria_crosswalk`, `finding_type`, `lift_considered`, `correctness_severity`, `design_debt_severity`, `patch_chain_risk`, `findings_dropped_in_verification`, `project_rules_loaded`, `rule_refs`, `scope`, `decision`, `prior_relation`, `prior_review_summary`, `evidence_sources`, `external_claims_verified`, `reachability`, `rejections_loaded`, `previously_rejected`) are only visible to consumers that bump to the matching schema version.
 
 ## File layout
 
@@ -248,6 +263,8 @@ skills/devil-review/
     ├── data.md        # persistence / migrations / schema checklist
     ├── cli.md         # CLI tool checklist
     └── crypto.md      # security-critical / cryptographic code checklist
+skills/devil-reject/
+└── SKILL.md           # sibling skill — records user rejections of findings to .claude/devil-review/<session>/rejections.json
 ```
 
 New domain checklists can be added under `domains/` by extending the routing table in `SKILL.md` Step 5. Each checklist is loaded only when the diff touches matching files, so adding domains does not grow the base review cost — only the ceiling for cross-domain mega-diffs.

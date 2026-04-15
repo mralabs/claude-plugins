@@ -341,6 +341,67 @@ Every finding carries a `reachability` tag orthogonal to `severity`, `confidence
 
 ---
 
+## User rejection memory (v1.14+)
+
+A rejection is a user's explicit judgment that a prior finding is not actionable — it does not describe a real bug in their system, or the bug does not matter for their use case. Rejections are recorded by the sibling `/devil-reject` skill and live in a session-scoped sidecar file `.claude/devil-review/${CLAUDE_SESSION_ID}/rejections.json`. The reviewer must consult this file on every run to avoid silently re-raising findings the user has already dismissed.
+
+**Why this exists (observed).** Saha test #3 surfaced the following friction pattern on a real project: Round 1 of `/devil-review` flagged a Windows trailing-backslash edge case; the user assessed it as not-a-real-concern and skipped it; Round 2 re-flagged the same location with identical logic. The reviewer had no memory of the prior dismissal and re-raised the same claim. Combined with the severity-dampening rule from saha test #2, the silent re-raise creates a "patch-chain of rejected findings" — the reviewer persistently surfaces the same dismissed claims, and the user either re-dismisses each round (friction) or tunes the reviewer out entirely (worse — real signal gets lost in noise).
+
+Rejection memory closes the loop: the reviewer consults the file, matches candidate findings against rejection hashes, and either suppresses silently or re-raises with justification.
+
+**Scope of rejection memory.**
+
+- **Session and target scoped.** Rejections live under `${CLAUDE_SESSION_ID}` — a new session starts fresh. Rationale: stale rejections from weeks ago should not mask findings that are now valid because surrounding code has changed. If long-term rejection memory becomes a need, that is a future feature; current scope matches the prior-review snapshot discipline.
+- **Hash-keyed, not class-keyed.** Each rejection is a sha256 over a normalized `file:lines:title` triple. A similar finding at a different file, at a different line range, or with a substantively different title re-fires. The hash function is specified in `/devil-reject` Step 4 — normalization collapses whitespace and lowercases `file`/`lines` but preserves `title` case so proper-noun changes re-fire.
+- **Target-agnostic within a session.** A rejection recorded after a working-tree review also applies when the same hash surfaces in a later branch-mode or PR-mode review within the session. The hash is the identity, not the review mode.
+- **Explicit.** The reviewer cannot infer "user skipped this finding = rejection" from silence. A rejection exists only when the user explicitly invokes `/devil-reject N`. Absence of rejection is not consent.
+
+**The suppress-vs-re-raise decision (reviewer-gated).**
+
+When a candidate finding matches a rejection hash, the reviewer chooses between two paths:
+
+- **Suppress silently** is the default. When the current analysis has produced no materially new evidence for the finding, drop it from `findings`. Do not log the suppressed finding in `findings_dropped_in_verification` (that field is for Claim-verification drops, a different category). Instead, add a `scenarios_considered` line `rejection suppressed: <hash first 12 chars> — <file>:<lines>` so the suppression is visible. The user sees that the reviewer respected their prior decision.
+- **Re-raise with annotation** is exceptional. Re-raise when the current analysis has surfaced new evidence the prior rejection did not consider. Valid categories of new evidence:
+  1. A new call path from an entry point to the claimed bug that was not traced in the prior round (often the case after Reachability step 1 newly traces a path — the finding may have been hypothetical last time and is now reachable).
+  2. A new config, feature flag, or platform condition that changes the bug's reachability classification.
+  3. A new sibling field or data-flow that makes the invariant more load-bearing than the prior round showed.
+  4. A project-rule citation now applies (a rule file was added since the prior rejection).
+  5. A new prior-review snapshot shows the bug now `carries-over` in a way that was not present before.
+
+  When re-raising, populate `findings[].previously_rejected` with `{rejected_at, prior_rationale, new_evidence}`. `new_evidence` must be **one concrete sentence** describing the nameable difference — padding with "additional analysis surfaced" does not clear the bar. The finding body must **lead** with:
+
+  > Previously rejected on `<rejected_at>` with rationale `<prior_rationale or "(none provided)">`. New evidence: `<new_evidence>`.
+
+  Followed by the usual finding content. Severity and confidence carry from the current analysis; the rejection did not set severity, and the reviewer's current read may be higher or lower than the prior.
+
+**Bias rule.** When uncertain whether new evidence rises to the re-raise bar, suppress. Rejection memory exists to respect the user's prior decision; silently re-raising on speculative "more thinking" defeats the purpose. Re-raise requires a nameable difference, not a vibe.
+
+**Chain-of-rejections override (verdict rule 0 — highest precedence).**
+
+When the count of findings emitted with `previously_rejected` populated (the *resurface count*) reaches **≥ 2** in a single review, the reviewer is persistently surfacing user-dismissed findings across a session. This is the automation-facing dual of the v1.11 chain-closing override: that rule handled "prior fixes worked, don't escalate to refactor"; this rule handles "user and reviewer disagree about whether these findings are real, stop iterating".
+
+The override:
+- `verdict: approve` regardless of standard rule derivation.
+- `decision.action: ship` regardless of derivation.
+- `decision.rationale: "chain-of-rejections pattern — <N> previously-rejected findings re-raised; stop iterating, ship as-is"` (or equivalent wording naming the resurface count).
+- Re-raised findings still emit in `findings` for transparency — the override flips verdict/action, not the findings list.
+- `decision.patch_chain_detected` is independent of this override and follows the v1.11 rule (based on `carries-over` findings plus file overlap with prior diff).
+
+This rule fires **before** verdict rules 1-4 in the standard precedence. When it fires, the other rules do not evaluate.
+
+**Rationale.** Round N+1 of a review that keeps surfacing the same dismissed findings is not producing signal — it is producing friction. The user either ignores the output (worst case, loses real future signals), re-invokes `/devil-reject` on every round (friction), or disengages from the plugin (plugin loses a user). The override is the plugin saying "I keep bringing these up and you keep saying they do not matter; I accept your judgment and stop." This is the opposite of the patch-chain override from v1.11, which said "stop iterating because fixes are not working" — here we stop iterating because fixes are not needed.
+
+**Calibration note.** The `≥ 2` threshold is an uncalibrated starting value, same discipline as the v1.10 patch-chain thresholds and the v1.11 chain-closing thresholds. Real usage will surface whether 2 is correct. If users report the override firing too aggressively or too passively, revise in a v1.18.x patch and record the empirical basis in the plan doc revision log. Do not treat `≥ 2` as methodology — it is a data-collection parameter that should evolve independently of the rule.
+
+**Anti-pattern to avoid.** Using `/devil-reject` as an ack-dismiss workflow for every mid-severity finding, then letting the reviewer silently accept everything forward. If you find yourself rejecting multiple findings per review as a matter of course, you are calibrating the plugin away from the defects it is meant to catch — that is a usage signal that either (a) the plugin's severity bar is misaligned for your project (a fix to make), or (b) your project has a real false-positive problem in this area (a calibration issue to surface). Rejection is for specific findings you have triaged, not a wholesale preference toggle.
+
+**Interaction with prior-review snapshot + carries-over tagging.** Rejections and prior-review-carries-over are **orthogonal mechanisms**:
+- A finding can be both `carries-over` (matches a prior review's finding) and match a rejection hash. When both: the rejection takes precedence — suppress-silently or re-raise-with-new-evidence per the rule above. If re-raised, the finding still gets `prior_relation.category: carries-over` alongside `previously_rejected` populated.
+- Silent suppression does NOT count as a `resolved` prior finding. The rejection is a user judgment, not a reviewer judgment that the bug is gone. `prior_review_summary.resolved` counts only findings the reviewer judged no-longer-present in current state.
+- Suppressed rejections do not appear in `findings` and therefore do not count toward the resurface count. Only **re-raised** rejections count toward the chain-of-rejections threshold — suppressing a rejection is respecting the user, not surfacing a finding, so it cannot contribute to a chain the user is fighting against.
+
+---
+
 ## Calibration rules
 
 **Ship-blocker question (answer before listing findings):**
@@ -424,14 +485,15 @@ A single finding has exactly one `finding_type`. Findings that straddle categori
 - **Scope filter rationale.** `pre-existing` and `future-work` findings are allowed to be reported but do not drive verdict escalation — per the "Scope classification" section above. A review whose only findings are pre-existing bugs in unrelated code lands at `verdict: approve` because the *diff itself* is safe to ship; the pre-existing issues are surfaced transparently so the author can file follow-ups without mixing them into the ship decision.
 - **Reachability filter rationale.** `hypothetical` and `requires-specific-config` findings are allowed to be reported but do not drive verdict escalation — per the "Reachability classification" section above. A review whose only findings are hypothetical or config-specific lands at `verdict: approve` because the *reachable* failure surface is clean. The pattern is identical to the scope filter: transparency to the author, no silent drop-through to the verdict.
 
-**Verdict derivation — four rules, strict precedence, evaluated top to bottom:**
+**Verdict derivation — five rules, strict precedence, evaluated top to bottom:**
 
-All rules below filter on `scope == "in-diff"` AND `reachability == "reachable"` (the defaults when `scope` is absent on pre-v1.10 payloads and `reachability` is absent on pre-v1.13 payloads). `pre-existing`/`future-work` and `hypothetical`/`requires-specific-config` findings are emitted for transparency but do not drive verdict — see the "Scope classification" and "Reachability classification" sections for the rationale.
+Rule 0 is an override that fires before rules 1-4 and bypasses the standard filter. Rules 1-4 filter on `scope == "in-diff"` AND `reachability == "reachable"` (the defaults when `scope` is absent on pre-v1.10 payloads and `reachability` is absent on pre-v1.13 payloads). `pre-existing`/`future-work` and `hypothetical`/`requires-specific-config` findings are emitted for transparency but do not drive verdict — see the "Scope classification" and "Reachability classification" sections for the rationale.
 
-1. **`block`** — at least one finding with `finding_type == "correctness"` (or absent, treated as correctness) AND `scope == "in-diff"` (or absent, treated as in-diff) AND `reachability == "reachable"` (or absent, treated as reachable) AND severity `critical` or `high`, AND `ship_blocker_answer == "yes"`. Identical to the v1.5 rule on pre-v1.10 payloads and to the v1.12 rule on pre-v1.13 payloads; legacy payloads flow through unchanged because all three defaults (correctness + in-diff + reachable) preserve the original filter.
-2. **`needs-attention`** — rule 1 does not apply, at least one `in-diff` + `reachable` finding of material severity exists, `ship_blocker_answer == "no"`. The reviewer judges the issues are real but fixable in place — keep iterating.
-3. **`refactor-recommended`** — rule 1 does not apply, AND `design_debt_severity` (computed from `in-diff` + `reachable` findings only) is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 feature) OR (b) the count of `in-diff` + `reachable` `design_debt` findings is strictly greater than the count of `in-diff` + `reachable` `correctness` findings in this review, AND (c) the chain is NOT closing — `prior_review_summary` is absent OR `resolved < still_open + new_drift_introduced` (v1.11 feature — see "Verdict rule 3 clause (c) — chain-closing override" in the Patch-chain detection section). Clause (c) prevents `refactor-recommended` from firing when iteration is actually making things better. Semantic: *"there may be correctness issues, but fixing them in place will not address the real problem; step back and restructure."* `ship_blocker_answer == "no"` — by definition this is not a correctness ship-blocker.
-4. **`approve`** — zero findings, or all findings are `pre-existing`/`future-work` or `hypothetical`/`requires-specific-config`, or none of rules 1–3 apply. A review with only non-verdict-driving findings lands here: the diff ships, orthogonal issues are surfaced for the author to triage separately.
+0. **Chain-of-rejections override (v1.14+)** — when the count of findings with `previously_rejected` populated reaches **≥ 2**, set `verdict: approve` and `decision.action: ship` regardless of rules 1-4. `decision.rationale` names the resurface count and the chain-of-rejections pattern. The re-raised findings still emit in `findings`; only verdict and action are pinned. Rules 1-4 do not evaluate when this override fires. See the "User rejection memory" section above for the full rule.
+1. **`block`** — override 0 does not fire, at least one finding with `finding_type == "correctness"` (or absent, treated as correctness) AND `scope == "in-diff"` (or absent, treated as in-diff) AND `reachability == "reachable"` (or absent, treated as reachable) AND severity `critical` or `high`, AND `ship_blocker_answer == "yes"`. Identical to the v1.5 rule on pre-v1.10 payloads and to the v1.12 rule on pre-v1.13 payloads; legacy payloads flow through unchanged because all three defaults (correctness + in-diff + reachable) preserve the original filter.
+2. **`needs-attention`** — override 0 does not fire, rule 1 does not apply, at least one `in-diff` + `reachable` finding of material severity exists, `ship_blocker_answer == "no"`. The reviewer judges the issues are real but fixable in place — keep iterating.
+3. **`refactor-recommended`** — override 0 does not fire, rule 1 does not apply, AND `design_debt_severity` (computed from `in-diff` + `reachable` findings only) is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 feature) OR (b) the count of `in-diff` + `reachable` `design_debt` findings is strictly greater than the count of `in-diff` + `reachable` `correctness` findings in this review, AND (c) the chain is NOT closing — `prior_review_summary` is absent OR `resolved < still_open + new_drift_introduced` (v1.11 feature — see "Verdict rule 3 clause (c) — chain-closing override" in the Patch-chain detection section). Clause (c) prevents `refactor-recommended` from firing when iteration is actually making things better. Semantic: *"there may be correctness issues, but fixing them in place will not address the real problem; step back and restructure."* `ship_blocker_answer == "no"` — by definition this is not a correctness ship-blocker.
+4. **`approve`** — zero findings, or all findings are `pre-existing`/`future-work` or `hypothetical`/`requires-specific-config`, or none of override 0 / rule 1 / rule 2 / rule 3 apply. A review with only non-verdict-driving findings lands here: the diff ships, orthogonal issues are surfaced for the author to triage separately.
 
 **Compatibility property.** Any v1.5-era payload re-run under v1.6+ rules produces the same verdict, and any v1.9-era payload re-run under v1.10 rules produces the same verdict:
 
@@ -440,6 +502,7 @@ All rules below filter on `scope == "in-diff"` AND `reachability == "reachable"`
 - v1.9-and-earlier findings have no `scope` → default-to-in-diff → the scope filter is a no-op on legacy payloads, preserving verdict calculation identically. A v1.9 review that would have emitted `block` still emits `block` under v1.10 rules.
 - v1.10-and-earlier payloads have no `prior_review_summary` → clause (c) of rule 3 evaluates `prior_review_summary` as absent → "chain is closing" condition is false → clause (c) does not block a `refactor-recommended` that was already going to fire. Legacy payloads that previously emitted `refactor-recommended` continue to emit it.
 - v1.12-and-earlier findings have no `reachability` → default-to-reachable → the reachability filter is a no-op on legacy payloads, preserving verdict calculation identically. A v1.12 review that would have emitted `block` still emits `block` under v1.13 rules; the new filter only changes outcomes when reviewers actively classify a finding as `hypothetical` or `requires-specific-config`, which legacy payloads never do.
+- v1.13-and-earlier payloads have no `findings[].previously_rejected` → resurface count is 0 on replay → override 0 never fires → rules 1-4 evaluate exactly as before. The new override only changes outcomes when the current run genuinely re-raises ≥2 rejections, which requires the v1.18.0 plugin to have loaded a `rejections.json` file and chosen to re-raise entries from it. Legacy payloads cannot satisfy these preconditions.
 - Rules 2 and 4 reduce exactly to the v1.5 `needs-attention` and `approve` rules respectively.
 
 This property is what keeps every minor bump a genuine minor bump per the repo's semver discipline, not a major one. Do not add rules that break it without bumping to a major version.
