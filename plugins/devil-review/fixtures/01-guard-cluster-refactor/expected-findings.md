@@ -36,6 +36,13 @@ Loose must-contain / must-NOT-contain assertions. Verified by a human after each
 - `trace_log.ship_blocker_answer: "no"` — design debt does not block ship on its own
 - `trace_log.classification_notes` is a non-empty sentence
 - `trace_log.findings_dropped_in_verification` is **present** (schema v1.8 unconditional requirement). Empty array `[]` is acceptable if every candidate finding survived the Claim verification pass unchanged; a populated entry is also acceptable if a candidate claim was narrowed or dropped during the pass. Absence of the field is a regression.
+- `trace_log.project_rules_loaded` is **present and non-empty** — contains an entry with `path: ".claude/rules/no-patches.md"` and a `bytes` value matching the file's size. This fixture ships the rule file specifically to exercise citation behavior (schema v1.9).
+
+### Rule citation
+
+- The design_debt finding's `rule_refs` array is **present and non-empty**, containing at least one entry with `source: ".claude/rules/no-patches.md"`.
+- The cited `quote` appears **verbatim** in `.claude/rules/no-patches.md` — a string-search for the quote in the rule file must succeed (modulo leading/trailing whitespace). Acceptable quotes include lines like "Every new guard on the read side is evidence that the write side has too many entry points." or "If two or more readers need to check the same invariant, collapse to a single writer that guarantees the invariant by construction." Paraphrased or composite quotes fail this assertion.
+- The `rule` identifier is a short phrase drawn from the rule file's structure — `"Enforce at the writer, not downstream"` (the `##` heading) is the canonical choice.
 
 ## Must NOT contain
 

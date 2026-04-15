@@ -177,6 +177,30 @@ The findings cap still applies per group (see `methodology.md`).
    - **CLAUDE.md** (repo root) — read the "Architectural Decisions" section or equivalent. These are intentional choices. Findings that contradict them must be marked `[spec-accepted]` or dropped.
    - **Active specs / RFCs** — look in `docs/`, `specs/`, `rfcs/`, `.claude/rfcs/`, task board files. Same rule.
 
+2b. **Project review rules** (cite, don't drop). Pre-review context in 5.2 is used to **drop** findings that contradict intentional architectural decisions. Project review rules are the opposite direction: the project's own rule files authorize findings to cite a specific rule as the grounding, making the finding more actionable than prose advice. A finding that says "violates `.claude/rules/no-patches.md`: enforce at the writer" is materially more useful than "this is a patch on a patch".
+
+   **Glob for project rule candidates**, load the ones that exist (skip gracefully if nothing matches):
+   - `.claude/rules/*.md`
+   - `code-review.md`, `CODE_REVIEW.md`, `REVIEW.md` (at repo root)
+   - `docs/review-rules.md`, `docs/contributing.md`, `CONTRIBUTING.md`
+   - `**/rules/*.md` at repo root or one level deep (e.g., `apps/*/rules/*.md`)
+
+   **Load caps** — to prevent context bloat on projects with long rule corpora:
+   - At most **10 files** loaded. When more candidates exist, prefer `.claude/rules/*.md` first (explicit rule files), then root-level review/contributing docs, then deeper matches.
+   - At most **30 KB** total content across all loaded rule files combined. If a single file blows the budget, truncate at the end of the last complete top-level section (markdown `##` heading) before the cap.
+   - Skip any file under `node_modules/`, `vendor/`, `.git/`, build output directories, or test fixtures. `domains/*.md` inside the devil-review plugin itself is **not** a project rule file — it ships with the skill.
+
+   **Record what was loaded** in `trace_log.project_rules_loaded` as entries of `{path, bytes}`. Empty array `[]` is valid when no rule file matched. **Absence of the field is a grounding failure** — the attempt must be visible.
+
+   **During finding generation** (Step 6), for each finding, attempt to cite applicable rule(s) from the loaded corpus. Each citation lives on the finding as an entry in `findings[].rule_refs` with three fields:
+   - `source` — the path to the rule file
+   - `rule` — a short identifier (heading name, numbered rule, or one-sentence paraphrase if the rule has no heading)
+   - `quote` — **a verbatim 1–2 line quote from the rule file** that directly supports the finding's framing
+
+   The verbatim-quote requirement is the anti-hallucination gate. Findings whose `rule_refs[].quote` strings do not appear **literally** in the cited file are schema-invalid — downstream consumers are entitled to reject them. If you cannot produce a verbatim quote, you cannot cite the rule; either rewrite the finding without the citation or drop the citation. Paraphrased "quotes" are the common failure mode to avoid.
+
+   Empty `rule_refs: []` on a finding is always valid. Citation is opportunistic: a finding that does not correspond to any loaded project rule simply has no citation, not a forced one.
+
 3. **Domain checklists** — classify the changed files and load every matching checklist. A single diff can match more than one domain (e.g., a React Native component touches both UI and mobile; an Electron renderer touches both UI and desktop; a backend handler that writes SQL touches both API and data). Load all that apply.
 
    | Domain | File / marker | Checklist |
@@ -240,6 +264,7 @@ Do not start writing output until you have:
 - populated `trace_log.patch_chain_risk` with a non-empty `theme_assessment` whenever any Step 3b signal fired, regardless of the final `detected` value — the reviewer's theme-vs-root judgment is auditable
 - emitted a `scenarios_considered` line `prior-review ingestion: <status>` on every non-error run — the auto-detect outcome (loaded, absent, or rejected with reason) must always be visible per the observability rule in Step 3b
 - run the **Claim verification pass** on every candidate finding per `methodology.md` and populated `trace_log.findings_dropped_in_verification` (empty array `[]` is valid when every finding survived unchanged — absence of the field means the pass was skipped and is a grounding failure)
+- populated `trace_log.project_rules_loaded` with every project rule file loaded in Step 5.2b (empty array `[]` is valid when no rule file matched; absence is a grounding failure). Findings that cite a rule must emit `findings[].rule_refs` with a verbatim `quote` from the cited file — paraphrased quotes are schema-invalid
 - verified every required field listed in `output-schema.md` JSON rules is present — this is the backstop for future schema additions; when a new required field lands in a later version, the checklist does not need a per-field bullet if this backstop bullet catches it
 
 ---

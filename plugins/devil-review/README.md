@@ -177,7 +177,7 @@ Considered but not promoted:
 **Test coverage**: <one of `no-test:`, `mock-bypass:`, or `missing-assertion:` followed by a one-sentence explanation>
 ```
 
-Followed by a JSON fence carrying the same data in a structured form for downstream tools (current schema version: **1.8**, see `skills/devil-review/output-schema.md` for the full contract). The schema is additive across patch and minor versions — older consumers parse newer payloads without error, but new fields (`failure_modes_considered`, `new_reader_paths`, `test_coverage`, `considered_not_promoted`, `acceptance_criteria_crosswalk`, `finding_type`, `lift_considered`, `correctness_severity`, `design_debt_severity`, `patch_chain_risk`, `findings_dropped_in_verification`) are only visible to consumers that bump to the matching schema version.
+Followed by a JSON fence carrying the same data in a structured form for downstream tools (current schema version: **1.9**, see `skills/devil-review/output-schema.md` for the full contract). The schema is additive across patch and minor versions — older consumers parse newer payloads without error, but new fields (`failure_modes_considered`, `new_reader_paths`, `test_coverage`, `considered_not_promoted`, `acceptance_criteria_crosswalk`, `finding_type`, `lift_considered`, `correctness_severity`, `design_debt_severity`, `patch_chain_risk`, `findings_dropped_in_verification`, `project_rules_loaded`, `rule_refs`) are only visible to consumers that bump to the matching schema version.
 
 ## File layout
 

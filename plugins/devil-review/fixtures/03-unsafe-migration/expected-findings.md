@@ -27,6 +27,7 @@ Loose must-contain / must-NOT-contain assertions.
 - `trace_log.classification_notes` explains data.md load based on `.sql` file and `migrations/` directory.
 - `trace_log.symbols_inspected` contains the `User` type (consumers traced).
 - `trace_log.findings_dropped_in_verification` is **present** (schema v1.8 unconditional requirement). Empty `[]` or populated — both acceptable depending on whether the Claim verification pass narrowed/dropped any candidate claims during the review. Absence of the field is a regression.
+- `trace_log.project_rules_loaded` is **present** (schema v1.9 unconditional requirement). Empty `[]` is expected for this fixture since no rule files are set up; the field must be emitted regardless to prove Step 5.2b ran.
 
 ## Must NOT contain
 

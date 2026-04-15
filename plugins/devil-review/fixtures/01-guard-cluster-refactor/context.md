@@ -12,6 +12,7 @@ This is a textbook patch-chain: each prior round of review added another guard i
 - **No CLAUDE.md architectural decisions** about session state; the flag-based approach was never ratified, it accumulated.
 - **No active spec** with acceptance criteria for this diff.
 - **Test file:** `src/__tests__/session.test.ts` exists but only covers the happy-path restore (no concurrent-load assertion, no state-machine assertion on the flag combination).
+- **Project review rule:** `.claude/rules/no-patches.md` exists in this fixture's directory. Copy it into the scratch checkout at `.claude/rules/no-patches.md` so Step 5.2b's glob picks it up. The rule articulates "Enforce at the writer, not downstream" — the guard-cluster finding should cite it.
 
 ## Commit history on `src/session.ts` (inject before running)
 

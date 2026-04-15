@@ -229,6 +229,42 @@ Be aggressive, but stay grounded. Every finding must be defensible from the prov
 
 ---
 
+## Project-rule citation (when project rules are loaded)
+
+SKILL.md Step 5.2b loads project-local review rule files (`.claude/rules/*.md`, `code-review.md`, `CONTRIBUTING.md`, etc.). This section defines what citation means and when it is required.
+
+**The value proposition.** A finding that cites a specific project rule is materially more useful than one that does not:
+- "Violates `.claude/rules/no-patches.md` → *Enforce at the writer, not downstream*" lands as rule-enforcement a project author can act on.
+- "This is a patch on a patch, consider refactoring" reads as the reviewer's opinion — no weight behind it, easy to dismiss.
+
+Citation turns the reviewer from opinion-source to rule-enforcer when the rule exists. When no applicable rule exists, no citation — there is no requirement to manufacture one.
+
+**When to cite.** For each finding generated in Step 6, ask: *"does the load-bearing reason this is a finding correspond to something the loaded project rule corpus already articulates?"* If yes, cite it. If no, do not cite — opportunistic citation only.
+
+**Citation shape** (per finding, optional `findings[].rule_refs` array — empty array or absent field both mean "no applicable rule"):
+
+1. `source` — the path to the rule file as loaded in Step 5.2b (must match one of the entries in `trace_log.project_rules_loaded`; citing a file that was not loaded is a grounding failure).
+2. `rule` — a short identifier. Prefer a markdown heading name from the rule file ("Enforce at the writer, not downstream"). If the rule file has no headings, use a one-sentence paraphrase that appears near the quoted text.
+3. `quote` — **a verbatim 1–2 line string lifted literally from the rule file**. Consumers can and should check this: the quote must be findable in the file via string search (allowing for normalization of leading/trailing whitespace only). Paraphrased "quotes" are forbidden.
+
+**The verbatim-quote requirement is the anti-hallucination gate.** LLMs, when asked to cite, frequently produce plausible-sounding rule text that is not actually in the file. This is the single highest-risk failure mode of citation. Enforcement:
+
+- If you cannot find a 1–2 line literal quote that supports the finding's framing, **you cannot cite that rule**. Either rewrite the finding to drop the citation, or cite a different rule whose actual text does support the claim, or emit no citation at all.
+- If you are tempted to "tighten" or "clean up" the rule's wording when quoting, stop — tightened wording is paraphrased wording. Copy the rule's exact language even if it is awkwardly phrased.
+- Do not compose composite quotes from multiple non-adjacent passages. A quote must be a contiguous 1–2 line span from the rule file.
+
+**Multi-rule citation.** A single finding may cite more than one rule if they independently reinforce the framing (e.g., `no-patches.md` + `single-source-of-truth.md` both apply to the same guard-cluster finding). Cap at 3 citations per finding — beyond that, the finding is overloaded and should be split or the citations pruned to the strongest ones.
+
+**Interaction with Claim verification pass.** Citations are subject to the same verification discipline as the rest of the finding body. A citation whose `quote` does not appear in the cited file is an over-claim and must be dropped or fixed. Log such drops in `findings_dropped_in_verification` with reason `no-evidence-after-trace`.
+
+**Interaction with CLAUDE.md / architectural decisions.** Step 5.2's "Pre-review context" and Step 5.2b's "Project review rules" can point at the same document in some projects. The rule of thumb is:
+- If a finding is being **dropped or marked `spec-accepted`** because the CLAUDE.md / spec authorizes the behavior, that is Step 5.2's use — no citation needed on the finding (which no longer exists).
+- If a finding is being **emitted and wants to cite the rule as authorization for the framing**, that is Step 5.2b's use — `rule_refs` carries the citation.
+
+The same document can serve both purposes; the distinction is directional (drop vs cite), not structural.
+
+---
+
 ## Calibration rules
 
 **Ship-blocker question (answer before listing findings):**
@@ -385,6 +421,7 @@ Before finalizing, verify each finding is:
 - actionable for an engineer fixing the issue
 - framed at the **root invariant**, not a narrow symptomatic instance (apply the generalization test from calibration rules)
 - **claim-verified** — load-bearing claims have passed the Claim verification pass (section above); over-claims were narrowed, reclassified, or dropped with the drop logged in `findings_dropped_in_verification`
+- **citation-verified** — if `rule_refs` is populated on the finding, every `quote` appears verbatim in the cited rule file (string-findable, modulo leading/trailing whitespace). Paraphrased "quotes" are schema-invalid. Empty `rule_refs` is always valid.
 - grounded by **test-trace** — you can answer "why didn't existing tests catch this?" per the subsection below
 - NOT already fixed in the current file on disk (re-read to confirm)
 - NOT an intentional decision documented in CLAUDE.md or an active spec

@@ -26,6 +26,11 @@ Domain classification:
 - Considered but dropped: <comma-separated list with one-word reason, or "none">
 - Notes: <one sentence on any ambiguous classification calls>
 
+Project rules loaded:
+- `<path/to/rule.md>` (<bytes> bytes)
+- ...
+(empty list "none" is valid when no rule file matched the Step 5.2b globs; omission is not)
+
 Changed symbols inspected:
 - `<symbol>` (<kind: function|component|type|schema|config>) → consumers: <file:line>, <file:line>
   - failure-mode audit: <`<callee>` at <file:line> — <existing failure mode> — compatible with <new caller>: yes|no — <rationale>>
@@ -69,6 +74,10 @@ Findings dropped in verification:
 <body — what can go wrong, why this code path is vulnerable, likely impact>
 
 **Recommendation**: <concrete change to reduce risk>
+
+**Rule citations** (optional, only when a loaded project rule applies):
+- `<path/to/rule.md>` — *<rule identifier>*: "<verbatim 1–2 line quote from the rule file>"
+- ...
 
 **Test coverage**: <one of the three canonical forms>
 - `no-test: <one-sentence explanation — where you looked>`
@@ -123,10 +132,11 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - `1.6` — extended `verdict` enum with a fourth value `refactor-recommended` (existing three values keep their exact prior semantics). Added optional top-level `correctness_severity` and `design_debt_severity` (same enum as `findings[].severity` plus `none`). Added required `findings[].finding_type` (enum: `correctness | design_debt | best_practice_violation | architectural_smell`) — consumers reading payloads without this field (replay of v1.5 snapshots) must treat absence as `"correctness"`. Added optional `findings[].lift_considered` (three-way object with type_lift / writer_lift / ordering_lift, each carrying `{viable, rationale}`) for recording lift evaluation when the recommendation is a guard. Added optional `considered_not_promoted[].design_alternative_considered` (string) and `considered_not_promoted[].tracked_as_debt` (boolean) for observations that are debt rather than bugs. Compatibility property: v1.5-era payloads re-validated under v1.6 rules produce identical verdicts because the default-to-correctness rule on missing `finding_type` preserves pre-v1.6 block semantics.
 - `1.7` — added optional `trace_log.patch_chain_risk` object for recording the git-log patch-chain scan from SKILL.md Step 3b. Conditionally required: when any of the three signals (fix-prefix cluster, same-file hotspot, prior-review overlap) fires during Step 3b, the field must be present and must carry `theme_assessment` regardless of whether `detected` is `true` or `false` — the theme-vs-root judgment is auditable. When no signal fires, the field may be omitted entirely. No existing fields removed or retyped; v1.6 consumers ignore the unknown key and see identical verdicts on inputs without patch-chain signals. The `refactor-recommended` verdict rule 3 clause (a) becomes reachable for the first time with v1.7 — v1.6 reviewers could emit `refactor-recommended` via clause (b) (design_debt findings outnumber correctness) but not via patch-chain without v1.7 infrastructure.
 - `1.8` — added required `trace_log.findings_dropped_in_verification` (array of `{original_claim, reason}` entries) for recording the output of the Claim verification pass (methodology.md). Empty array `[]` is valid and expected when every candidate finding survived the pass unchanged — absence of the field is a grounding failure because it means the pass was skipped. The `reason` enum is `unsupported-reachability | asymmetry-error | scope-inflation | counterfactual-leak | no-evidence-after-trace | narrowed-kept`. No fields removed or retyped; v1.7 consumers parse v1.8 payloads without error but see an unknown key. The verdict derivation rules and all severity axes are unchanged. Pairs with the new methodology "Claim verification pass (pre-emit)" section that runs after candidate findings are generated and before emit; findings that fail the pass are either narrowed (kept with reason `narrowed-kept`), reclassified (moved to `considered_not_promoted`), or dropped (logged here). Compatibility property: v1.7 payloads re-validated under v1.8 rules produce identical verdicts — the new field affects only the grounding-completeness check, not verdict derivation.
+- `1.9` — added required `trace_log.project_rules_loaded` (array of `{path, bytes}` entries) recording which project-local rule files were loaded by SKILL.md Step 5.2b. Empty array `[]` is valid when no project rule file matched; absence is a grounding failure (the load attempt must be visible). Added optional `findings[].rule_refs` (array of `{source, rule, quote}` entries) for per-finding citations against the loaded rule corpus. Citation is opportunistic — empty array or absent field both mean "no applicable rule". The `quote` field must be a **verbatim 1–2 line string literally present in the cited file** (string-findable, modulo leading/trailing whitespace); paraphrased quotes are schema-invalid and downstream consumers are entitled to reject them. `source` must match one of the paths in `trace_log.project_rules_loaded`; citing an unloaded file is a grounding failure. No fields removed or retyped; v1.8 consumers parse v1.9 payloads without error. Verdict derivation and severity axes unchanged. Pairs with the new methodology "Project-rule citation" section. Compatibility property: v1.8 payloads re-validated under v1.9 rules produce identical verdicts — citations are additive grounding evidence, not verdict inputs.
 
 ```json
 {
-  "schema_version": "1.8",
+  "schema_version": "1.9",
   "verdict": "block | needs-attention | refactor-recommended | approve",
   "target": {
     "mode": "working-tree | branch | pr",
@@ -219,6 +229,12 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
         "original_claim": "<one sentence — the load-bearing claim as first written, before verification>",
         "reason": "unsupported-reachability | asymmetry-error | scope-inflation | counterfactual-leak | no-evidence-after-trace | narrowed-kept"
       }
+    ],
+    "project_rules_loaded": [
+      {
+        "path": "<path/to/rule/file.md — must match a Step 5.2b glob result>",
+        "bytes": 0
+      }
     ]
   },
   "findings": [
@@ -238,6 +254,13 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
         "writer_lift": { "viable": false, "rationale": "<...>" },
         "ordering_lift": { "viable": true, "rationale": "<...>" }
       },
+      "rule_refs": [
+        {
+          "source": "<path/to/project/rule/file.md — must match a path in trace_log.project_rules_loaded>",
+          "rule": "<short identifier: heading name, numbered rule, or one-sentence paraphrase>",
+          "quote": "<1–2 line string lifted verbatim from the rule file — consumers may string-search to verify>"
+        }
+      ],
       "test_coverage": {
         "covered_by": "<path/to/test:line or null>",
         "why_missed": "<code>: <one-sentence explanation>"
@@ -260,6 +283,8 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - **`trace_log.mutated_records_inspected`** is required on every review where the diff writes to at least one record. Each entry requires `record`, `kind`, `siblings_considered` (list every sibling field on the record, even ones you concluded were safe), and optionally `note`. Empty array `[]` is valid only if the diff contains zero record writes — in that case add `no record writes in diff` as a scenario line. Skipping this field when writes exist is the same class of grounding failure as an empty `symbols_inspected`: you skipped the data-model fanout trace.
 - **`findings[].test_coverage`** is required on every finding. Both `covered_by` (test file path with line, or `null`) and `why_missed` (enum: `no-test`, `mock-bypass`, `missing-assertion`, plus a one-sentence explanation) must be present. If you cannot produce a test-trace answer from one of these three categories, the finding is invalid — either re-read the tests or drop it. See the test-trace rule in `methodology.md`. This field cannot be `null` and cannot be omitted: a finding without it indicates the reviewer skipped the validation gate and the finding cannot be trusted.
 - **`trace_log.acceptance_criteria_crosswalk`** is conditionally required. When the pre-review context step loads a spec with **structured acceptance criteria** (explicit "must" statements, numbered requirements, bulleted ACs, definition-of-done checklist), the crosswalk must be populated with one entry per AC — including ACs that pass. Empty array `[]` is valid only when no spec loaded OR the loaded spec has no structured ACs (prose-only narrative RFCs qualify for the empty-list exemption). In the empty-list case, `classification_notes` or a scenario line must explain why: e.g. `"no spec loaded for this diff"` or `"spec loaded but no structured ACs — crosswalk skipped"`. Each entry requires `ac` (the AC text quoted verbatim), `spec_location` (file:line or section heading), `status` (one of `implemented`, `ambiguous`, `missing`, `contradicted`), and `implementation` (file:line-range for `implemented` / `ambiguous` / `contradicted`; `null` for `missing`). `notes` is optional but recommended for non-`implemented` statuses. See the "Acceptance criteria crosswalk" section in `methodology.md`. Skipping this field when a spec with ACs is present is the same class of grounding failure as an empty `symbols_inspected` — the audit did not happen.
+- **`trace_log.project_rules_loaded`** is **unconditionally required** on every non-error run. Records which project-local review rule files SKILL.md Step 5.2b discovered and loaded. Each entry has two required fields: `path` (repo-relative path to the rule file) and `bytes` (size of the loaded content — after truncation if the 30 KB cap fired). Empty array `[]` is valid and expected when no rule candidate matched the Step 5.2b globs in the current project. Absence of the field is a grounding failure because it means the load step was skipped rather than run-and-empty. At most 10 entries per the Step 5.2b cap; when the skill truncated to stay under the 30 KB budget, the truncated file still appears in this array with its post-truncation byte count.
+- **`findings[].rule_refs`** is optional. Populate it when a finding corresponds to a rule articulated in one of the loaded project rule files (`trace_log.project_rules_loaded`). Each entry has three required fields: `source` (must match one of the paths in `trace_log.project_rules_loaded` — citing an unloaded file is a grounding failure), `rule` (short identifier — heading name from the rule file, numbered rule, or a one-sentence paraphrase appearing adjacent to the quote), and `quote` (a **verbatim 1–2 line string lifted literally from the rule file**; downstream consumers may and should string-search the cited file to verify). Paraphrased quotes, composite quotes assembled from non-adjacent passages, or "cleaned up" rule text are schema-invalid — consumers are entitled to reject findings whose quote strings do not appear in the cited file. Cap at 3 citations per finding; beyond that, split the finding or prune to the strongest rules. Empty array `[]` or omitting the field both mean "no applicable rule" — citation is opportunistic, not mandatory. See the "Project-rule citation" section in `methodology.md`.
 - **`trace_log.findings_dropped_in_verification`** is **unconditionally required** on every non-error run. It records the output of the Claim verification pass (see `methodology.md` section "Claim verification pass (pre-emit)"). Empty array `[]` is valid and expected when every candidate finding survived the pass unchanged — absence of the field is a grounding failure because it means the pass was skipped rather than run-and-clean. Each entry has two required fields: `original_claim` (one sentence, the load-bearing claim as first written before the pass fired) and `reason` (enum: `unsupported-reachability | asymmetry-error | scope-inflation | counterfactual-leak | no-evidence-after-trace | narrowed-kept`). Use `narrowed-kept` when the pass fired and the finding was rewritten with a tighter claim rather than dropped — the finding still appears in `findings` with its narrower version, and the original wider claim is logged here for auditability. Use `no-evidence-after-trace` when the pass could not locate supporting evidence for the claim even after re-reading the code paths the claim referenced. Do not use this field to silently smuggle in observations that were never candidate findings — it is a record of the pass's *drops and narrowings*, not a general-purpose scratchpad.
 - **`trace_log.patch_chain_risk`** is conditionally required. When SKILL.md Step 3b scans the git log and **any** of the three signals fires (`fix-prefix-cluster`, `same-file-hotspot`, `prior-review-overlap`), the field must be present and must carry a one-sentence `theme_assessment` regardless of whether `detected` ends up `true` or `false`. When no signal fires, the field may be omitted entirely. When the field is present: `detected` (boolean) records whether the reviewer's theme-vs-root judgment confirms the patch chain; `signals_fired` (array) lists which signals triggered the scan; `chain_depth` (integer) is the count of defensive commits in the window that match the prefix filter (0 if only the prior-review-overlap signal fired); `prior_commits` (array of one-line strings `"<sha> <subject>"`) records the evidence — omit or empty-array if the prior-review-overlap signal fired alone; `prior_review_file` is the resolved auto-detect path `.claude/devil-review/${CLAUDE_SESSION_ID}/<target-slug>.md` when Step 3b successfully loaded a snapshot, else `null` (file absent or rejected); `theme_assessment` is the mandatory one-sentence answer to the theme-vs-root gate; `recommendation` is a one-sentence note on what the signal means for this review. See the "Patch-chain detection" section in `methodology.md` and the data-collection rules in SKILL.md Step 3b. Emitting `detected: true` without a `theme_assessment` is the same class of grounding failure as an empty `symbols_inspected` — the reviewer skipped the gate. The `refactor-recommended` verdict rule 3 clause (a) reads `detected == true` from this field; clause (b) is independent of this field and remains reachable in v1.6 payloads.
 - **`findings` length must respect the hard cap** from `methodology.md` (3 under 500 lines, 5 under 1500, 3 per split group).
@@ -296,7 +321,7 @@ Followed by:
 
 ```json
 {
-  "schema_version": "1.8",
+  "schema_version": "1.9",
   "verdict": null,
   "error": "<error code: not_a_repo | gh_missing | empty_diff | shallow_clone_no_base | other>",
   "message": "<human-readable explanation>"
