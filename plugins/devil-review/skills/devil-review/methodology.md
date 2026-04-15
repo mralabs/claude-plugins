@@ -389,7 +389,7 @@ All rules below filter on `scope == "in-diff"` (the default when `scope` is abse
 
 1. **`block`** — at least one finding with `finding_type == "correctness"` (or absent, treated as correctness) AND `scope == "in-diff"` (or absent, treated as in-diff) AND severity `critical` or `high`, AND `ship_blocker_answer == "yes"`. Identical to the v1.5 rule on pre-v1.10 payloads; pre-v1.10 payloads flow through unchanged because both defaults (correctness + in-diff) preserve the original filter.
 2. **`needs-attention`** — rule 1 does not apply, at least one `in-diff` finding of material severity exists, `ship_blocker_answer == "no"`. The reviewer judges the issues are real but fixable in place — keep iterating.
-3. **`refactor-recommended`** — rule 1 does not apply, AND `design_debt_severity` (computed from `in-diff` findings only) is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 feature) OR (b) the count of `in-diff design_debt` findings is strictly greater than the count of `in-diff correctness` findings in this review. Semantic: *"there may be correctness issues, but fixing them in place will not address the real problem; step back and restructure."* `ship_blocker_answer == "no"` — by definition this is not a correctness ship-blocker.
+3. **`refactor-recommended`** — rule 1 does not apply, AND `design_debt_severity` (computed from `in-diff` findings only) is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 feature) OR (b) the count of `in-diff design_debt` findings is strictly greater than the count of `in-diff correctness` findings in this review, AND (c) the chain is NOT closing — `prior_review_summary` is absent OR `resolved < still_open + new_drift_introduced` (v1.11 feature — see "Verdict rule 3 clause (c) — chain-closing override" in the Patch-chain detection section). Clause (c) prevents `refactor-recommended` from firing when iteration is actually making things better. Semantic: *"there may be correctness issues, but fixing them in place will not address the real problem; step back and restructure."* `ship_blocker_answer == "no"` — by definition this is not a correctness ship-blocker.
 4. **`approve`** — zero findings, or all findings are `pre-existing`/`future-work`, or none of rules 1–3 apply. A review with only pre-existing/future-work findings lands here: the diff ships, unrelated issues are surfaced for the author to triage separately.
 
 **Compatibility property.** Any v1.5-era payload re-run under v1.6+ rules produces the same verdict, and any v1.9-era payload re-run under v1.10 rules produces the same verdict:
@@ -397,6 +397,7 @@ All rules below filter on `scope == "in-diff"` (the default when `scope` is abse
 - v1.5 findings have no `finding_type` → default-to-correctness → rule 1 behaves as the v1.5 `block` rule.
 - v1.5 payloads have no `design_debt_severity` → absent treated as `"none"` → rule 3 clause (a) and (b) both unreachable without v1.6 inputs → rule 3 never fires.
 - v1.9-and-earlier findings have no `scope` → default-to-in-diff → the scope filter is a no-op on legacy payloads, preserving verdict calculation identically. A v1.9 review that would have emitted `block` still emits `block` under v1.10 rules.
+- v1.10-and-earlier payloads have no `prior_review_summary` → clause (c) of rule 3 evaluates `prior_review_summary` as absent → "chain is closing" condition is false → clause (c) does not block a `refactor-recommended` that was already going to fire. Legacy payloads that previously emitted `refactor-recommended` continue to emit it.
 - Rules 2 and 4 reduce exactly to the v1.5 `needs-attention` and `approve` rules respectively.
 
 This property is what keeps every minor bump a genuine minor bump per the repo's semver discipline, not a major one. Do not add rules that break it without bumping to a major version.
@@ -417,6 +418,83 @@ The detection is deterministic (git log scan, prior-review overlap check — all
 **Scope: single-step, single-session.** Each run reads only the immediately prior run's snapshot — Step 8 overwrites the session-and-target-scoped file on every run. Longer chains are caught round-by-round because `prior-review-overlap` fires on each iteration; the refactor decision depends on "I keep flagging the same locations," not on a cumulative round counter. A new Claude Code session ID starts with a clean slate, so multi-day snapshots cannot falsely fire on today's unrelated work — and git log signals (fix-prefix cluster, same-file hotspot) remain session-independent, compensating for the lost cross-session overlap signal when the patch chain spans sessions.
 
 **Prior-review is review context, not review truth.** The earlier reviewer saw an earlier diff; you see this one. The prior review's findings are *evidence that this surface has been scrutinized before*, not architectural decisions. Re-check each prior finding against the current state — some may have been correctly fixed, some may have been patched-over, some may still be present in modified form. The one thing you cannot do is defer to the prior review's severity or verdict on any given item; per the "Prior review output is not an architectural decision" rule in the operating stance, the current review rebuilds its own severity assignments from zero.
+
+### Prior-relation classification (when prior review is loaded)
+
+When Step 3b loads a prior-review snapshot, each current finding can be classified against the prior review's findings. This makes the attribution machine-readable instead of prose-buried in `theme_assessment`. Emit per-finding `prior_relation` on every current finding, with four categories (first matching rule wins):
+
+1. **`carries-over`** — the same invariant violation is present in both the prior state and the current state. The prior fix either did not address this finding or addressed it only partially. The file:line may have shifted (code moved, got renamed, got refactored around) but the underlying invariant being violated is the same.
+2. **`resolved`** — the prior finding's location is no longer a finding in the current state. The fix worked for this item. Emitted only when explicitly reasoning about which prior findings are now gone — typically surfaced in `trace_log.prior_review_summary` rather than as a current finding, since resolved items are by definition not current findings.
+3. **`new-drift-from-fix`** — the finding is at a location the prior fix **introduced or changed**. The previous round's fix was correct for what it addressed, but opened a new foot-gun elsewhere. This is the highest-signal category — it tells the author "your previous fix made the system worse in a new way" and is the most common source of genuine patch-chain dynamics.
+4. **`pre-existing-orthogonal`** — the finding is at a location the prior review did not reach AND the prior fix did not touch. The bug existed in the code before the prior fix, but the prior reviewer just missed it. Not a patch-chain signal; different scrutiny surface.
+
+**When to classify.** For every current finding, when a prior review was loaded. When no prior review was loaded (fresh first run, or auto-detect returned `absent`), omit `prior_relation` entirely on all findings — there is no prior to relate to.
+
+**Edge cases.** When a finding is genuinely ambiguous between `new-drift-from-fix` and `pre-existing-orthogonal` (e.g., the fix touched this file and a new issue appeared, but the issue logic predates the fix), default to `pre-existing-orthogonal`. This is the "when in doubt, drop severity" spirit — `new-drift-from-fix` is the more accusatory classification and should require concrete evidence that the prior fix caused the drift.
+
+### Severity dampening for carries-over findings
+
+When a finding's `prior_relation.category == "carries-over"`, apply the dampening rule before finalizing severity:
+
+- **Hold at prior level** if the prior finding was at `high` or `critical` severity AND the current state still exhibits the same invariant violation. Do NOT silently demote a recurring high-severity finding to `medium` or `low` just because this is round N+1 — that pattern is what the saha test #2 caught, and it hides the real patch-chain dynamic behind noise.
+- **Raise the bar** if the finding is a re-surface at equal-or-lower severity than the prior. Emit only if you can articulate in the finding body *why the prior fix did not address it*. If the answer is "the prior fix was unrelated to this aspect of the invariant", reclassify the finding from `carries-over` to `pre-existing-orthogonal` and drop severity one notch (not two) — the finding is real but is not evidence of a patch chain.
+- **Do not silently downgrade.** A resurfaced finding either gets credit (same severity + `carries-over` tag, reviewer-visible) or gets reclassified/dropped with justification. Lower-severity re-flagging without credit is the saha-test-#2 antipattern this rule closes.
+
+**Reviewer-irony interaction.** Severity dampening cannot raise severity above what the current state independently justifies — it only blocks silent demotion. If the current state's severity is genuinely lower than the prior (e.g., the fix addressed 80% of the blast radius and the remaining 20% is materially smaller), dampening may not apply — state this explicitly in the finding body and let severity reflect reality. The rule is "don't hide recurrence behind severity drift", not "never let severity drop".
+
+### Decision derivation (top-level `decision` block)
+
+In addition to `verdict`, every non-error emission carries a machine-readable `decision` block for downstream automation (CI gates, `/loop` auto-stop, PR decorators). This turns "is this review a signal to stop iterating and refactor" into a script-readable field, independent of the prose-facing `verdict`.
+
+Structure:
+```json
+"decision": {
+  "action": "iterate | stop-and-refactor | ship",
+  "patch_chain_detected": <boolean>,
+  "iteration_count": <integer>,
+  "rationale": "<one-sentence why this action>"
+}
+```
+
+**Field derivation:**
+
+1. **`patch_chain_detected: true`** iff all four hold:
+   - A prior review was loaded (Step 3b returned `loaded` status); AND
+   - ≥1 current finding has `prior_relation.category == "carries-over"`; AND
+   - The current diff touches at least one file that also appeared in the prior diff (files in common, not a disjoint set); AND
+   - The current `in-diff` finding count is not materially lower than the prior (< 50% reduction is "not materially lower"). A diff that went from 4 findings to 1 is *closing the chain*; from 4 to 3 is *churning the chain*.
+   
+   Otherwise `patch_chain_detected: false`.
+
+   **Distinction from `trace_log.patch_chain_risk.detected`.** These two fields measure *different things*:
+   - `trace_log.patch_chain_risk.detected` (v1.7+) is the **git-log signal**, reviewer-gated by the theme-vs-root guard. It aggregates over commit history and can fire on the first-ever session reviewing a file with a long defensive-prefix history.
+   - `decision.patch_chain_detected` (v1.11+) is the **session signal**, requiring a prior review snapshot and at least one `carries-over` finding. It cannot fire on a fresh session regardless of git history.
+   
+   Both signals can be present, absent, or one-but-not-the-other. Example: fresh first-run on a file with three historical `fix:` commits will emit `patch_chain_risk.detected: true` but `decision.patch_chain_detected: false`. This is correct — the git history flags the anti-pattern for the author; the session signal would only fire once the reviewer itself has started circling.
+
+2. **`iteration_count`** = the count of times this session has reviewed this target. Derived from prior-review session metadata when available; defaults to `1` on a fresh run with no prior. If the prior review snapshot itself carried an `iteration_count`, increment that value by 1; otherwise if a prior exists but had no `iteration_count`, set to `2` (one past run + this run).
+
+3. **`action`**:
+   - `stop-and-refactor` iff `patch_chain_detected == true` AND `iteration_count ≥ 2`. The signal is strong enough that continuing to iterate is worse than stepping back. This is the machine-readable form of `verdict: refactor-recommended` — but note that `action` can fire `stop-and-refactor` even when `verdict` is `needs-attention`, if the patch-chain signal is loud enough.
+   - `ship` iff `verdict == "approve"` AND (no prior loaded OR `prior_review_summary.resolved ≥ prior_review_summary.still_open + prior_review_summary.new_drift_introduced`). Chain-closing condition: the fix actually reduced the problem more than it introduced. Pure first-run approvals also ship.
+   - `iterate` otherwise. Default action — there are findings to address but no structural step-back signal.
+
+4. **`rationale`** — one sentence explaining why this action was chosen. For `stop-and-refactor`, name the patch-chain evidence. For `ship`, name the chain-closing evidence or the zero-findings state. For `iterate`, name the top outstanding in-diff finding.
+
+**Interaction with `verdict`.** `verdict` stays prose-facing and uses the four-value enum (`block | needs-attention | refactor-recommended | approve`). `decision.action` is its three-value downstream companion. Consumers that already handle `verdict` continue to work; `decision` is additive for consumers that want automation hooks. In the common case the two agree:
+
+- `verdict: block` + `action: iterate` (fix the blocker, come back)
+- `verdict: needs-attention` + `action: iterate`
+- `verdict: refactor-recommended` + `action: stop-and-refactor`
+- `verdict: approve` + `action: ship`
+
+Edge cases exist (e.g., `verdict: needs-attention` but `patch_chain_detected: true` at iteration 2 → `action: stop-and-refactor` even though verdict is "keep iterating"). When `verdict` and `action` disagree, `action` is the automation signal; reviewers reading the prose should treat the disagreement as a deliberate call-out that manual judgment matters here.
+
+### Verdict rule 3 clause (c) — chain-closing override
+
+Add a chain-closing condition to the `refactor-recommended` verdict rule (v1.11): *Do NOT escalate to `refactor-recommended` — even when `design_debt_severity` is high/critical and patch-chain signals fire — when `prior_review_summary.resolved ≥ prior_review_summary.still_open + prior_review_summary.new_drift_introduced`.* The chain is closing: the fix resolved more prior findings than it left open or introduced. Escalating to `refactor-recommended` at that point would be noise; the structural-refactor recommendation fires when iteration is making things worse, not when iteration is making things better.
+
+Emit `verdict: needs-attention` (if any in-diff finding remains) or `approve` (if none) in the chain-closing case, and name the chain-closing evidence in `trace_log.ship_blocker_reasoning` or in `decision.rationale`. This operationalizes the dampening the reviewer performed manually in saha test #2, where Round 2 correctly concluded "prior findings resolved, new findings introduced by fix or pre-existing — not a patch chain" and dampened away from `refactor-recommended`.
 
 **Threshold rationale** is in SKILL.md Step 3b (acknowledged uncalibrated starting values, to be revised in a patch bump after real usage calibration). Do not treat the thresholds as methodology — they are data-collection parameters that should evolve independently of the rule itself.
 

@@ -13,6 +13,8 @@ Target: <"working tree diff" | "branch diff against <ref>" | "PR #<n>">
 Scope: <N files, M lines changed>  [or: "split review (N files across G groups)"]
 Focus: <user's focus text, if provided>
 Verdict: <block | needs-attention | refactor-recommended | approve>
+Decision: <iterate | stop-and-refactor | ship>  (iteration <N>; patch_chain_detected=<true|false>)
+  Rationale: <one sentence>
 
 <1-2 sentence ship/no-ship assessment — terse, not neutral>
 
@@ -30,6 +32,13 @@ Project rules loaded:
 - `<path/to/rule.md>` (<bytes> bytes)
 - ...
 (empty list "none" is valid when no rule file matched the Step 5.2b globs; omission is not)
+
+Prior-review summary (present only when Step 3b loaded a prior):
+- Total in prior: <N>
+- Resolved: <N>
+- Still open: <N>
+- New drift introduced: <N>
+- Pre-existing unrelated: <N>
 
 Changed symbols inspected:
 - `<symbol>` (<kind: function|component|type|schema|config>) → consumers: <file:line>, <file:line>
@@ -70,6 +79,7 @@ Findings dropped in verification:
 - **Lines**: L<start>-L<end>
 - **Type**: <correctness | design_debt | best_practice_violation | architectural_smell>
 - **Scope**: <in-diff | pre-existing | future-work>
+- **Prior relation**: <carries-over | resolved | new-drift-from-fix | pre-existing-orthogonal>  (omit when no prior loaded)
 - **Confidence**: <0.0 to 1.0>
 
 <body — what can go wrong, why this code path is vulnerable, likely impact>
@@ -135,11 +145,18 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - `1.8` — added required `trace_log.findings_dropped_in_verification` (array of `{original_claim, reason}` entries) for recording the output of the Claim verification pass (methodology.md). Empty array `[]` is valid and expected when every candidate finding survived the pass unchanged — absence of the field is a grounding failure because it means the pass was skipped. The `reason` enum is `unsupported-reachability | asymmetry-error | scope-inflation | counterfactual-leak | no-evidence-after-trace | narrowed-kept`. No fields removed or retyped; v1.7 consumers parse v1.8 payloads without error but see an unknown key. The verdict derivation rules and all severity axes are unchanged. Pairs with the new methodology "Claim verification pass (pre-emit)" section that runs after candidate findings are generated and before emit; findings that fail the pass are either narrowed (kept with reason `narrowed-kept`), reclassified (moved to `considered_not_promoted`), or dropped (logged here). Compatibility property: v1.7 payloads re-validated under v1.8 rules produce identical verdicts — the new field affects only the grounding-completeness check, not verdict derivation.
 - `1.9` — added required `trace_log.project_rules_loaded` (array of `{path, bytes}` entries) recording which project-local rule files were loaded by SKILL.md Step 5.2b. Empty array `[]` is valid when no project rule file matched; absence is a grounding failure (the load attempt must be visible). Added optional `findings[].rule_refs` (array of `{source, rule, quote}` entries) for per-finding citations against the loaded rule corpus. Citation is opportunistic — empty array or absent field both mean "no applicable rule". The `quote` field must be a **verbatim 1–2 line string literally present in the cited file** (string-findable, modulo leading/trailing whitespace); paraphrased quotes are schema-invalid and downstream consumers are entitled to reject them. `source` must match one of the paths in `trace_log.project_rules_loaded`; citing an unloaded file is a grounding failure. No fields removed or retyped; v1.8 consumers parse v1.9 payloads without error. Verdict derivation and severity axes unchanged. Pairs with the new methodology "Project-rule citation" section. Compatibility property: v1.8 payloads re-validated under v1.9 rules produce identical verdicts — citations are additive grounding evidence, not verdict inputs.
 - `1.10` — added required `findings[].scope` (enum: `in-diff | pre-existing | future-work`). Default-to-`in-diff` rule for payloads without this field (replay of pre-v1.10 snapshots) preserves pre-v1.10 verdict calculations identically. Verdict derivation rules updated to filter on `scope == "in-diff"` — only in-diff findings contribute to `correctness_severity`, `design_debt_severity`, and the block/needs-attention/refactor-recommended rules. `pre-existing` and `future-work` findings still count toward the hard cap and still emit as findings, but they do not drive verdict escalation. A review whose only findings are `pre-existing` or `future-work` lands at `verdict: approve` because the diff itself is safe to ship. No fields removed or retyped; v1.9 consumers parse v1.10 payloads without error. Pairs with the new methodology "Scope classification" section. Compatibility property: v1.9 payloads re-validated under v1.10 rules produce identical verdicts — the scope filter is a no-op on findings without the field because of the in-diff default.
+- `1.11` — three additions tied to the Item 6 expansion (structured prior-review attribution + chain-closing override + machine-readable decision). (1) Added conditionally required `findings[].prior_relation` — when Step 3b loaded a prior review, every current finding carries `prior_relation.category` (enum: `carries-over | resolved | new-drift-from-fix | pre-existing-orthogonal`) and optional `prior_finding_ref` (prior finding title quoted verbatim, or null). When no prior was loaded, the field is omitted entirely on all findings. (2) Added conditionally required `trace_log.prior_review_summary` — only emitted when a prior was loaded, carries per-category counts (`total_in_prior`, `resolved`, `still_open`, `new_drift_introduced`, `pre_existing_unrelated`). (3) Added **unconditionally required** top-level `decision` object on every non-error run, with fields `action` (enum: `iterate | stop-and-refactor | ship`), `patch_chain_detected` (boolean), `iteration_count` (integer, defaults to 1), and `rationale` (one sentence). Extended verdict derivation rule 3 with clause (c) — chain-closing override: do not escalate to `refactor-recommended` when `prior_review_summary.resolved ≥ still_open + new_drift_introduced`. Also added methodology rule for severity dampening on `carries-over` findings (prevents silent demotion of recurring high-severity findings). No fields removed or retyped; v1.10 consumers parse v1.11 payloads without error but will not see the new `decision` block or `prior_relation` attribution. Compatibility property: v1.10 payloads re-validated under v1.11 rules produce the same verdict unless the payload includes a `prior_review_summary` that triggers the chain-closing clause — which cannot happen on v1.10 payloads because that field is v1.11-only. Legacy payloads emit `decision` via consumer-side synthesis when missing (default: `{action: iterate, patch_chain_detected: false, iteration_count: 1, rationale: "legacy payload"}` or `{action: ship, ...}` when verdict is `approve`).
 
 ```json
 {
-  "schema_version": "1.10",
+  "schema_version": "1.11",
   "verdict": "block | needs-attention | refactor-recommended | approve",
+  "decision": {
+    "action": "iterate | stop-and-refactor | ship",
+    "patch_chain_detected": false,
+    "iteration_count": 1,
+    "rationale": "<one-sentence why this action was chosen>"
+  },
   "target": {
     "mode": "working-tree | branch | pr",
     "base_ref": "<ref or null>",
@@ -237,7 +254,14 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
         "path": "<path/to/rule/file.md — must match a Step 5.2b glob result>",
         "bytes": 0
       }
-    ]
+    ],
+    "prior_review_summary": {
+      "total_in_prior": 0,
+      "resolved": 0,
+      "still_open": 0,
+      "new_drift_introduced": 0,
+      "pre_existing_unrelated": 0
+    }
   },
   "findings": [
     {
@@ -264,6 +288,10 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
           "quote": "<1–2 line string lifted verbatim from the rule file — consumers may string-search to verify>"
         }
       ],
+      "prior_relation": {
+        "category": "carries-over | resolved | new-drift-from-fix | pre-existing-orthogonal",
+        "prior_finding_ref": "<prior finding title quoted verbatim, or null>"
+      },
       "test_coverage": {
         "covered_by": "<path/to/test:line or null>",
         "why_missed": "<code>: <one-sentence explanation>"
@@ -276,6 +304,14 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 ### JSON rules
 
 - **`verdict`** is an enum: exactly one of `block`, `needs-attention`, `refactor-recommended`, `approve`. No other values. The fourth value `refactor-recommended` was added in schema v1.6 — it means "not a ship-blocker by correctness, but structural debt is high enough that iterating in place will make it worse; step back and restructure".
+- **`decision`** is **unconditionally required** on every non-error run (v1.11+). Machine-readable automation signal that pairs with prose-facing `verdict`. Four fields:
+  - `action` (enum, required): exactly one of `iterate | stop-and-refactor | ship`. Derivation rules live in the "Decision derivation" section of `methodology.md`.
+  - `patch_chain_detected` (boolean, required): `true` iff all four hold — prior review loaded, ≥1 current finding has `prior_relation.category == "carries-over"`, current diff and prior diff share ≥1 file, and the current in-diff finding count is not materially lower than prior (< 50% reduction is "not materially lower").
+  - `iteration_count` (integer, required, ≥1): count of times this session has reviewed this target. Defaults to `1` on a fresh run with no prior. When a prior snapshot exists and carries an `iteration_count`, increment by 1; otherwise set to `2` if prior exists without the field.
+  - `rationale` (string, required): one sentence explaining why this action was chosen. Must be non-empty.
+  Verdict ↔ decision.action agreement: typically `block`/`needs-attention` → `iterate`, `refactor-recommended` → `stop-and-refactor`, `approve` → `ship`. Disagreements are allowed and are the automation signal — e.g., `verdict: needs-attention` + `decision.action: stop-and-refactor` when `patch_chain_detected: true` at `iteration_count ≥ 2`. When they disagree, `decision.action` is the CI/automation signal and the disagreement should be called out in `rationale`.
+- **`findings[].prior_relation`** is **conditionally required**: required on every finding when a prior review was loaded (Step 3b status `loaded`), omitted entirely on all findings when no prior was loaded (status `absent` or any `rejected-*` value). Two fields: `category` (enum, required — `carries-over | resolved | new-drift-from-fix | pre-existing-orthogonal`) and `prior_finding_ref` (string or null, optional — the prior finding's title quoted verbatim, or null when no specific prior finding is referenced). Classification rules live in the "Prior-relation classification" subsection of `methodology.md`. Silent omission when a prior was loaded is a grounding failure — the attribution must be visible per finding.
+- **`trace_log.prior_review_summary`** is **conditionally required**: required when a prior review was loaded, omitted entirely when no prior was loaded. Five integer fields, all required and ≥0: `total_in_prior` (count of findings in the prior review), `resolved` (count of prior findings that are no longer present in current state), `still_open` (count of prior findings that remain as `carries-over` in current findings), `new_drift_introduced` (count of current findings with `prior_relation.category == "new-drift-from-fix"`), `pre_existing_unrelated` (count with `pre-existing-orthogonal`). Verdict rule 3 clause (c) reads `resolved ≥ still_open + new_drift_introduced` from this field to determine chain-closing override — when the chain is closing, `refactor-recommended` is suppressed.
 - **`trace_log.ship_blocker_answer`** is required when `verdict` is `block`, `needs-attention`, or `refactor-recommended`. Value is `"yes"` only when `verdict == "block"`; otherwise `"no"`. May be omitted when `verdict` is `approve`.
 - **`trace_log.ship_blocker_reasoning`** is required alongside `ship_blocker_answer`. One sentence.
 - **`trace_log.domains_loaded`** is required on every non-error run. Empty array `[]` is valid only if no domain matched — in that case, add a scenario noting "generic attack surface only".
@@ -299,10 +335,10 @@ Emit immediately after the markdown section, in a fenced code block tagged `json
 - **`findings[].lift_considered`** is optional. Populate it when the recommendation is a runtime guard (per the Lift hierarchy rule in `methodology.md`). Each of `type_lift`, `writer_lift`, `ordering_lift` carries `{ viable: boolean, rationale: string }` where `rationale` is a one-sentence explanation of the constraint that either blocks or enables that lift. For a guard recommendation to be justified, either (a) **all three** of `type_lift`, `writer_lift`, `ordering_lift` must be `viable: false` with a specific constraint named per lift, OR (b) the finding body must name a **system boundary** (user input, external API, untrusted data, trust boundary where the producer cannot be changed) as the reason a lift is not the right primitive. If any of the three lifts is `viable: true` and no system boundary is named in the body, the recommendation should be that viable lift, not a guard — emitting a guard recommendation under these conditions is a schema-methodology inconsistency that downstream consumers are entitled to reject. If the recommendation is not a guard (e.g., recommending a lift directly, recommending a test, recommending removing code), the field may be omitted.
 - **`considered_not_promoted[].design_alternative_considered`** is optional — a one-sentence description of the lift or structural change that would resolve the observation if it ever escalated to a bug. Use it when you see a latent issue that is not a bug today but has an obvious structural fix; leaves a breadcrumb for the next reviewer.
 - **`considered_not_promoted[].tracked_as_debt`** is optional boolean. Set to `true` when the observation represents design debt worth tracking even though it doesn't rise to a finding. No consumer required today; metadata for future tooling.
-- **Verdict consistency** (schema v1.10 — four rules, strict precedence, all filtered on `scope == "in-diff"` with the default-to-in-diff rule applied to pre-v1.10 payloads):
+- **Verdict consistency** (schema v1.11 — four rules, strict precedence, all filtered on `scope == "in-diff"` with the default-to-in-diff rule applied to pre-v1.10 payloads):
   - **`block`** — at least one finding with `finding_type == "correctness"` (or absent, treated as correctness) AND `scope == "in-diff"` (or absent, treated as in-diff) AND severity `critical` or `high`, AND `ship_blocker_answer == "yes"`. Pre-v1.10 payloads flow through identically because both defaults preserve the filter.
   - **`needs-attention`** — at least one `in-diff` finding of material severity, `block` does not apply, AND `ship_blocker_answer == "no"`. Reviewer judges the issues are real but fixable in place.
-  - **`refactor-recommended`** — `block` does not apply AND `design_debt_severity` (computed from `in-diff` findings only) is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 plugin feature) OR (b) `in-diff design_debt` findings outnumber `in-diff correctness` findings in this review. `ship_blocker_answer == "no"` — by definition not a correctness ship-blocker.
+  - **`refactor-recommended`** — `block` does not apply AND `design_debt_severity` (computed from `in-diff` findings only) is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 plugin feature) OR (b) `in-diff design_debt` findings outnumber `in-diff correctness` findings in this review, AND (c) the chain is NOT closing — `prior_review_summary` is absent OR `resolved < still_open + new_drift_introduced` (v1.11 feature). `ship_blocker_answer == "no"` — by definition not a correctness ship-blocker. Clause (c) prevents `refactor-recommended` from firing when iteration is materially reducing the problem.
   - **`approve`** — zero findings, or all findings are `pre-existing`/`future-work`, or the above three rules do not apply. A review with only pre-existing/future-work findings lands here because the diff itself is safe; unrelated issues are transparently surfaced for author triage.
 - **Severity inflation guard**: if you answered the ship-blocker question `yes` but no individual **correctness** finding scores critical or high, your severity assignment is wrong — re-evaluate the severity of the blocking finding before inflating it to match the verdict. A design_debt finding with severity critical does not justify `ship_blocker_answer == "yes"`; it justifies `verdict: refactor-recommended` with `ship_blocker_answer == "no"`. The block test should agree with severity naturally; if it doesn't, either the finding is not actually a correctness ship-blocker or the finding is miscategorized.
 
@@ -325,7 +361,7 @@ Followed by:
 
 ```json
 {
-  "schema_version": "1.10",
+  "schema_version": "1.11",
   "verdict": null,
   "error": "<error code: not_a_repo | gh_missing | empty_diff | shallow_clone_no_base | other>",
   "message": "<human-readable explanation>"

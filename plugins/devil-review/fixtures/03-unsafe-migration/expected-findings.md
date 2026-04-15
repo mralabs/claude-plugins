@@ -30,6 +30,16 @@ Loose must-contain / must-NOT-contain assertions.
 - `trace_log.findings_dropped_in_verification` is **present** (schema v1.8 unconditional requirement). Empty `[]` or populated — both acceptable depending on whether the Claim verification pass narrowed/dropped any candidate claims during the review. Absence of the field is a regression.
 - `trace_log.project_rules_loaded` is **present** (schema v1.9 unconditional requirement). Empty `[]` is expected for this fixture since no rule files are set up; the field must be emitted regardless to prove Step 5.2b ran.
 
+### Decision block (schema v1.11)
+
+- Top-level `decision` is **present** on every run.
+- `decision.action: iterate` — verdict is `block`, so neither `ship` (requires approve) nor `stop-and-refactor` (requires patch_chain_detected + iteration ≥ 2) applies. Author must address the migration blocker before shipping.
+- `decision.patch_chain_detected: false` — fresh run, no prior.
+- `decision.iteration_count: 1` — fresh session.
+- `decision.rationale` is a non-empty sentence referencing the migration blocker.
+- `trace_log.prior_review_summary` is **absent**.
+- `findings[].prior_relation` is **absent** (no prior loaded).
+
 ## Must NOT contain
 
 - `verdict: approve` or `verdict: needs-attention` or `verdict: refactor-recommended` — this is a correctness ship-blocker, not debt or a suggestion.

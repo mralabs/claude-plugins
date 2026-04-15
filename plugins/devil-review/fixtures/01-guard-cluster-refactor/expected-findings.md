@@ -39,6 +39,16 @@ Loose must-contain / must-NOT-contain assertions. Verified by a human after each
 - `trace_log.findings_dropped_in_verification` is **present** (schema v1.8 unconditional requirement). Empty array `[]` is acceptable if every candidate finding survived the Claim verification pass unchanged; a populated entry is also acceptable if a candidate claim was narrowed or dropped during the pass. Absence of the field is a regression.
 - `trace_log.project_rules_loaded` is **present and non-empty** — contains an entry with `path: ".claude/rules/no-patches.md"` and a `bytes` value matching the file's size. This fixture ships the rule file specifically to exercise citation behavior (schema v1.9).
 
+### Decision block (schema v1.11)
+
+- Top-level `decision` is **present** on every run. Required fields: `action`, `patch_chain_detected`, `iteration_count`, `rationale`.
+- `decision.iteration_count: 1` — this is a fresh session with no prior snapshot, so iteration count is 1.
+- `decision.patch_chain_detected: false` — per v1.11 rules, session-scoped patch-chain detection requires a loaded prior review AND ≥1 `carries-over` finding. This fixture has neither (fresh run). `trace_log.patch_chain_risk.detected: true` (git-log signal) is a separate field and does fire here; the two fields measuring different signals is by design.
+- `decision.action: iterate` — `stop-and-refactor` requires `patch_chain_detected: true AND iteration_count ≥ 2`, neither of which holds on this fresh run. Verdict `refactor-recommended` + action `iterate` is a legitimate disagreement: the author is told "start the refactor now, don't iterate" but the session-level auto-stop has not triggered because no prior session reviewed this target.
+- `decision.rationale` is a non-empty sentence. Typical content: references the git-log patch-chain signal and notes this is iteration 1.
+- `trace_log.prior_review_summary` is **absent** (no prior loaded).
+- `findings[].prior_relation` is **absent** on every finding (no prior loaded).
+
 ### Rule citation
 
 - The design_debt finding's `rule_refs` array is **present and non-empty**, containing at least one entry with `source: ".claude/rules/no-patches.md"`.

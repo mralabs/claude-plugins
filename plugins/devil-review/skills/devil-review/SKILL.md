@@ -134,6 +134,16 @@ Where `<N>` is `5` for working-tree and branch modes, `10` for PR mode (PRs accu
 
 **Observability requirement.** The skill **must always** emit a `scenarios_considered` line of the form `prior-review ingestion: <status>` on every non-error run, where `<status>` is exactly one of `loaded`, `absent` (file does not exist — fresh run), `rejected-no-schema-version`, or `rejected-malformed-json`. This line makes the auto-detect outcome visible; silent drops are not permitted, and neither is silently running without a prior-check signal.
 
+### Prior-relation classification (v1.11+)
+
+When Step 3b's `<status>` is `loaded`, the loaded prior review's findings must also be used for per-finding attribution and summary-level roll-up — see the "Prior-relation classification" and "Decision derivation" subsections in `methodology.md`. Specifically:
+
+1. **Per-finding classification.** On every current finding, emit `findings[].prior_relation` with `category` in `{carries-over, resolved, new-drift-from-fix, pre-existing-orthogonal}` and optional `prior_finding_ref` (prior finding title quoted verbatim, or `null` when no specific prior finding is referenced). See methodology.md for the four-category decision tree.
+2. **Summary roll-up.** Populate `trace_log.prior_review_summary` with per-category counts derived from (a) current findings' `prior_relation` categories and (b) reviewer's judgment about which prior findings are now resolved (not in current findings). Fields: `total_in_prior`, `resolved`, `still_open`, `new_drift_introduced`, `pre_existing_unrelated`.
+3. **Severity dampening.** For every finding with `prior_relation.category == "carries-over"`, apply the severity dampening rule from methodology.md "Severity dampening for carries-over findings" — hold severity at prior level when the invariant is still violated, or reclassify to `pre-existing-orthogonal` with a one-notch severity drop if the prior fix was unrelated.
+
+When Step 3b's `<status>` is `absent` or any `rejected-*` value, omit `prior_relation` on all findings and omit `trace_log.prior_review_summary` entirely. Both fields are meaningless without a loaded prior.
+
 ### Theme-vs-root guard (reviewer-gated)
 
 Before emitting `patch_chain_risk.detected: true`, answer one sanity-check sentence: *"do the prior defensive commits address the same underlying root cause, or different root causes on the same file set?"*
@@ -266,6 +276,8 @@ Do not start writing output until you have:
 - run the **Claim verification pass** on every candidate finding per `methodology.md` and populated `trace_log.findings_dropped_in_verification` (empty array `[]` is valid when every finding survived unchanged — absence of the field means the pass was skipped and is a grounding failure)
 - populated `trace_log.project_rules_loaded` with every project rule file loaded in Step 5.2b (empty array `[]` is valid when no rule file matched; absence is a grounding failure). Findings that cite a rule must emit `findings[].rule_refs` with a verbatim `quote` from the cited file — paraphrased quotes are schema-invalid
 - classified every finding with a `scope` tag — `in-diff` (default), `pre-existing` (bug in code the diff did not touch), or `future-work` (suggestion, not a bug today). Only `in-diff` findings drive verdict escalation; `pre-existing`/`future-work` findings are informational. See the "Scope classification" section in `methodology.md`
+- **if prior review loaded** — classified every finding's `prior_relation.category` (one of `carries-over | resolved | new-drift-from-fix | pre-existing-orthogonal`), populated `trace_log.prior_review_summary` with per-category counts, and applied severity dampening to all `carries-over` findings. See the "Prior-relation classification" and "Severity dampening for carries-over findings" subsections in `methodology.md`. When no prior review was loaded, omit both fields entirely
+- emitted the top-level `decision` block (`action | patch_chain_detected | iteration_count | rationale`) on every non-error run — `decision` is the machine-readable automation signal that pairs with prose-facing `verdict`. See the "Decision derivation" subsection in `methodology.md`
 - verified every required field listed in `output-schema.md` JSON rules is present — this is the backstop for future schema additions; when a new required field lands in a later version, the checklist does not need a per-field bullet if this backstop bullet catches it
 
 ---

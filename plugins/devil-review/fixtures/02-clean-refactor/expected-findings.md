@@ -22,6 +22,16 @@ Loose must-contain / must-NOT-contain assertions. This fixture tests the *absenc
 - `trace_log.findings_dropped_in_verification` is **present and empty** (`[]`). On a clean-refactor fixture no candidate findings exist in the first place, so the Claim verification pass has nothing to drop or narrow — but the field must still be emitted to prove the pass was run (per schema v1.8). Absence of the field is a regression signal.
 - `trace_log.project_rules_loaded` is **present**. Empty array `[]` is expected (no rule files in this fixture's scratch setup), but the field itself must be emitted to prove Step 5.2b ran (per schema v1.9). Absence of the field is a regression signal.
 
+### Decision block (schema v1.11)
+
+- Top-level `decision` is **present** on every run.
+- `decision.action: ship` — verdict is `approve` and no prior loaded, so chain-closing is trivially satisfied (no prior findings to resolve or leave open).
+- `decision.patch_chain_detected: false` — fresh run, no prior, no carries-over finding.
+- `decision.iteration_count: 1` — fresh session.
+- `decision.rationale` is a non-empty sentence (typical: "clean rename, no material findings, no prior to dampen against").
+- `trace_log.prior_review_summary` is **absent**.
+- No findings exist, so `prior_relation` is trivially absent.
+
 ### Patch-chain
 
 - `trace_log.patch_chain_risk` is either absent or emits `detected: false` with `signals_fired: []`. No defensive prefix in the commit history should fire the scan.
