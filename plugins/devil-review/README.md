@@ -34,7 +34,14 @@ Every diff has dark corners — the edge case nobody tested, the race condition 
 /devil-review
 ```
 
-Every successful run auto-writes its output to `.claude/devil-review/<session-id>/<target>.md`, scoped by Claude Code session ID and review target (working-tree, branch, or PR). A subsequent `/devil-review` on the same target in the same session automatically detects and loads that snapshot, cross-references its findings against the current round, and fires the `prior-review-overlap` signal when the overlap crosses the patch-chain threshold — which can shift the verdict toward `refactor-recommended`. No flag, no filename management. Session scoping means stale reviews from prior sessions do not contaminate today's work.
+Every successful run auto-writes its output to `.claude/devil-review/<session-id>/<target>.md`, scoped by Claude Code session ID and review target (working-tree, branch, or PR). A subsequent `/devil-review` on the same target in the same session automatically detects and loads that snapshot and uses it for multi-round analysis:
+
+- **Finding-level attribution** — each current finding is classified against the prior round's findings with `prior_relation.category` in `{carries-over, new-drift-from-fix, pre-existing-orthogonal}`. The author can see at a glance which findings are recurrences vs. new drift caused by the prior fix vs. unrelated bugs the prior round missed.
+- **Severity dampening** — a `carries-over` finding that recurs at equal-or-lower severity triggers a bar-raising rule: either the reviewer articulates why the prior fix did not address it (keeps severity), or the finding gets reclassified as `pre-existing-orthogonal` with a one-notch severity drop. Silent demotion of recurring high-severity findings is blocked.
+- **Chain-closing override** — if the prior round's findings were mostly resolved (`resolved ≥ still_open + new_drift_introduced`), the `refactor-recommended` verdict is suppressed even when other conditions would trigger it. Iteration that is materially reducing the problem does not get penalized as patch-churn.
+- **Decision block** — a top-level machine-readable `decision` object (`action: iterate | stop-and-refactor | ship`, `patch_chain_detected`, `iteration_count`, `rationale`) pairs with the prose-facing `verdict` and is the signal CI gates and `/loop` auto-stop consume.
+
+No flag, no filename management. Session scoping means stale reviews from prior sessions do not contaminate today's work.
 
 ## Setup
 
@@ -72,7 +79,13 @@ One-time setup. Without this line, snapshots get tracked in git — which is usu
 
 The **ship-blocker question** — "Is there a single issue that would make me refuse to merge?" — is answered before any findings are listed. A yes drives the verdict to `block`; a no with high design-debt can drive it to `refactor-recommended`.
 
-Findings carry a `finding_type` that places each one into `correctness | design_debt | best_practice_violation | architectural_smell`. The two severity axes `correctness_severity` and `design_debt_severity` summarize the review at a glance and feed the verdict derivation — see `skills/devil-review/methodology.md` for the full decision tree.
+Findings carry a `finding_type` that places each one into `correctness | design_debt | best_practice_violation | architectural_smell`, and a `scope` tag in `in-diff | pre-existing | future-work`. The two severity axes `correctness_severity` and `design_debt_severity` summarize the review at a glance and feed the verdict derivation — but **only `in-diff` findings drive verdict escalation**. Pre-existing bugs the reviewer noticed in unrelated code and future-work suggestions still emit as findings for transparency but do not block ship decisions; the PR author can triage them separately.
+
+### Decision block — the automation signal
+
+Alongside the prose-facing `verdict`, every run emits a machine-readable `decision` block with `action: iterate | stop-and-refactor | ship`, `patch_chain_detected` (boolean), `iteration_count` (integer), and `rationale` (one sentence). Canonical pairing: `block`/`needs-attention` → `iterate`, `refactor-recommended` → `stop-and-refactor`, `approve` → `ship`. CI gates and `/loop`-style runners should read `decision.action` rather than parse prose.
+
+Verdict and decision can **disagree** in one important case: `verdict: needs-attention` + `decision.action: stop-and-refactor` when the patch-chain signal fires at `iteration_count ≥ 2` — the reviewer judges the current round is iterable in principle, but the session-level pattern says "stop, refactor instead of another round". When the two disagree, `decision.action` is the automation signal and the disagreement is called out in `rationale`. See `skills/devil-review/methodology.md` for the full decision tree.
 
 ## What it looks for
 
@@ -99,6 +112,10 @@ Findings carry a `finding_type` that places each one into `correctness | design_
 - **Generalization test** — every finding is reframed at the root invariant before reporting. Narrow framings ("crashed-tab edge case") are widened to the underlying invariant ("any session switch with a live process") so the fix matches the actual blast radius rather than the most extreme example.
 - **Prior-reviewer stance** — recommendations from earlier reviews (previous devil-review runs, codex review, PR comments) are reviewable artifacts, not architectural decisions. A change made in response to earlier feedback gets *more* scrutiny, not less, because over-correction is the default failure mode when targeting a narrow critique.
 - **Patch-chain detection** — when the same diff is reviewed multiple times, the skill scans recent git history for defensive-commit clusters (`fix:`, `guard:`, `prevent:`, `workaround:`, `hotfix:` prefixes) on the reviewed files, and auto-loads the previous run's output from `.claude/devil-review/<session-id>/<target>.md` (written by every successful run, session- and target-scoped) to cross-reference current candidate findings against the prior round. No flag needed — the skill always checks, and if a prior file exists it is used. If the signals fire on a genuine patch chain (same root cause repeatedly guarded, not different roots on the same hotspot), the verdict shifts to `refactor-recommended` and the recommendation is to collapse the guard cluster structurally rather than add another guard. Catches the failure mode where each new review round chases edge cases introduced by the previous round's guards.
+- **Claim verification pass (pre-emit)** — before emitting findings, the reviewer verifies its own load-bearing claims against the diff/code it read. Catches reviewer-side over-claims — asymmetry errors ("only fires when both fail" when either suffices), unsupported reachability assertions ("widens here" with no traceable call path), scope inflation, and counterfactual leaks. Findings that fail verification are narrowed, reclassified, or dropped; the drops are logged to `trace_log.findings_dropped_in_verification` so the pass is auditable. This discipline closes the reviewer-irony gap — a reviewer that catches the user's factual errors but never verifies its own claims is an unreliable reviewer.
+- **Project-rule citation** — when the project ships review rule files (`.claude/rules/*.md`, root-level `code-review.md`/`REVIEW.md`/`CONTRIBUTING.md`, or `**/rules/*.md` one level deep), the skill loads them (up to 10 files, 30 KB total cap) and findings can cite specific rules with **verbatim 1–2 line quotes**. Paraphrased or composited quotes are schema-invalid — consumers can string-search the cited file to verify the quote is literally present. Turns the reviewer from opinion-source to rule-enforcer when the project has articulated its own review rules. CLAUDE.md and active specs are still loaded separately as pre-review context for the drop-spec-accepted-findings discipline; project rules are the citation direction.
+- **Scope classification** — every finding carries `scope: in-diff | pre-existing | future-work`. The default is `in-diff`; `pre-existing` is for bugs in code the diff did not touch that the reviewer surfaced while tracing consumers; `future-work` is for design suggestions that do not describe a bug today. Only `in-diff` findings drive verdict escalation (`block` / `needs-attention` / `refactor-recommended`). Pre-existing and future-work findings still count toward the hard cap and still emit as findings, but they do not block the ship decision — the PR author can see them and file follow-ups without them dragging verdict down. Resolves the "stay scoped to the diff vs. raise the latent bug I just found" tension transparently instead of dropping either side.
+- **Structured prior-review attribution + decision block + severity dampening** — when a prior review snapshot is loaded, each current finding is classified against the prior round with `prior_relation.category` (three values: `carries-over | new-drift-from-fix | pre-existing-orthogonal`), and `trace_log.prior_review_summary` rolls up per-category counts. A severity-dampening rule blocks silent demotion of recurring high-severity findings — either the finding keeps its prior severity with `carries-over` tag, or it reclassifies to `pre-existing-orthogonal` with a one-notch drop, never a silent downgrade. The top-level `decision` block (`action: iterate | stop-and-refactor | ship`, `patch_chain_detected`, `iteration_count`, `rationale`) is the machine-readable automation signal paired with `verdict`. A chain-closing override suppresses `refactor-recommended` when the prior round's findings were mostly resolved by the fix — iteration that is working does not get penalized as patch-churn. Catches the round-N+1 failure mode where a prior round's finding resurfaces at lower severity without credit and the patch-chain signal hides behind the apparent improvement.
 
 **Domain-specific checklists** — loaded automatically based on what files the diff touches. A single review can load several:
 
@@ -130,7 +147,9 @@ Every review emits two parts: a markdown section and a JSON fence for downstream
 
 Target: working tree diff
 Scope: <N> files, <M> lines changed
-Verdict: <block | needs-attention | approve>
+Verdict: <block | needs-attention | refactor-recommended | approve>
+Decision: <iterate | stop-and-refactor | ship>  (iteration <N>; patch_chain_detected=<true|false>)
+  Rationale: <one sentence>
 
 <1-2 sentence ship/no-ship assessment>
 
@@ -143,6 +162,18 @@ Domain classification:
 - Loaded: <comma-separated list of domains>
 - Considered but dropped: <list with one-word reason>
 - Notes: <one sentence on classification calls>
+
+Project rules loaded:
+- `<path/to/rule.md>` (<bytes> bytes)
+- ...
+(empty list "none" is valid when no rule file matched; omission is not)
+
+Prior-review summary (present only when a prior run was loaded):
+- Total in prior: <N>
+- Resolved: <N>
+- Still open: <N>
+- New drift introduced: <N>
+- Pre-existing unrelated: <N>
 
 Changed symbols inspected:
 - `<symbol>` (<kind>) → consumers: <path/to/caller>:<line>, ...
@@ -163,16 +194,28 @@ Scenarios considered:
 Considered but not promoted:
 - <observation> — reason: <out-of-scope | low-confidence | covered-by-finding-N | spec-accepted | test-covers-invariant>
 
+Findings dropped in verification:
+- <original claim as first written> — reason: <unsupported-reachability | asymmetry-error | scope-inflation | counterfactual-leak | no-evidence-after-trace | narrowed-kept>
+- ...
+(empty list "none" is valid when every candidate finding survived the Claim verification pass unchanged; omission is not)
+
 ## Findings
 
 ### [severity] <short title>
 - **File**: `<path/to/file>`
 - **Lines**: L<start>-L<end>
+- **Type**: <correctness | design_debt | best_practice_violation | architectural_smell>
+- **Scope**: <in-diff | pre-existing | future-work>
+- **Prior relation**: <carries-over | new-drift-from-fix | pre-existing-orthogonal>  (omit when no prior loaded)
 - **Confidence**: <0.0-1.0>
 
 <what can go wrong, why this code path is vulnerable, likely impact>
 
 **Recommendation**: <concrete change to reduce risk>
+
+**Rule citations** (optional, only when a loaded project rule applies):
+- `<path/to/rule.md>` — *<rule identifier>*: "<verbatim 1–2 line quote from the rule file>"
+- ...
 
 **Test coverage**: <one of `no-test:`, `mock-bypass:`, or `missing-assertion:` followed by a one-sentence explanation>
 ```
