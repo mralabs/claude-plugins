@@ -346,6 +346,36 @@ The detection is deterministic (git log scan, prior-review overlap check — all
 
 ---
 
+## Claim verification pass (pre-emit)
+
+After generating candidate findings and before emitting output, run one pass over the findings list that checks the reviewer's own claims. Over-claims — factual errors, unsupported reachability assertions, scope inflation — are the fastest way to lose credibility, and the symbol-trace / record-fanout / contract-verification steps do not catch them because those steps gather **evidence**, not **claims**. A finding can be grounded in real evidence and still contain a load-bearing sentence that the evidence does not support.
+
+**The bug class** — patterns to watch for in your own emitted language:
+
+- **Asymmetry error** — "only X when both A and B fail" when in fact X fires when either fails and the actual asymmetry is elsewhere. The reviewer saw a conditional and summarized its shape wrong.
+- **Unsupported reachability** — "widens here because Y is reachable via Z" when no concrete path from an entry point to Y via Z can be named. The reviewer inferred reachability from a code pattern without tracing a path.
+- **Scope inflation** — "all callers must handle this" when only one caller matters and the others are covered by an earlier guard. The reviewer generalized a specific case to a universal.
+- **Counterfactual leak** — "without this fix, the system would X" when X depends on a code path the diff already blocks. The reviewer's claim is true only in a reality the diff has already ruled out.
+
+These claims are *plausible-looking* — they often appear in otherwise sound findings — but each is independently falsifiable. The pass checks them.
+
+**For each candidate finding, run the four-step verification:**
+
+1. **Restate the load-bearing claim** in one sentence, in the form `<subject> <verb> <condition>`. If the finding has multiple claims, pick the one whose falsification would drop the finding — that is the load-bearing one.
+2. **Locate supporting evidence** in the diff or in code you read during tracing. Quote 1–3 lines with file:line. The quote must directly entail the claim — "implied by surrounding code" is not evidence, it is inference waiting to be checked.
+3. **Check for falsifiers** — is there any visible branch, caller, or code path in the material you read that contradicts the claim? If you cannot rule out falsifiers because you did not read that code path, either (a) read it now and then decide, or (b) narrow the claim to the scope you did read.
+4. **Reachability claims specifically** — if the finding body uses words like "widens", "narrows", "only fires when", "unreachable", "always", or "never", name one concrete call path from an entry point (user action, cron, boot, API route, event) to the claimed behavior. If no path can be written, reclassify the claim from behavioral to structural — e.g., "this branch is hard to reason about" instead of "this branch is unreachable" — or drop the finding.
+
+**Emit constraint.** Findings that fail the verification pass are either narrowed, reclassified, or dropped. A *narrowed* finding has a tighter claim with evidence that supports it and remains in `findings`. A *reclassified* finding may change `finding_type` (often from `correctness` to `design_debt`) or move to `considered_not_promoted` with an appropriate reason. A *dropped* finding is logged in `trace_log.findings_dropped_in_verification` with its original claim and a reason code.
+
+**Observability requirement.** `trace_log.findings_dropped_in_verification` must be present on every non-error run. Empty array `[]` is valid and expected when every candidate finding survived the pass unchanged. Absence of the field is a grounding failure — it means the pass was skipped rather than run-and-clean. Each entry has two fields: `original_claim` (the load-bearing claim as first written) and `reason` (one of the reason codes in `output-schema.md`).
+
+**Interaction with Final check.** Final check (below) is a terse per-finding sanity checklist. Claim verification is the deeper discipline Final check depends on — a finding cannot be "grounded" (Final check bullet) if its load-bearing claim has not been verified. Run claim verification first; then run Final check.
+
+**The reviewer-irony rule.** This pass checks **your own emitted language**, not the code. A reviewer that catches the user's factual errors but does not verify its own claims is an unreliable reviewer. This pass exists specifically to close that asymmetry. It is also why `narrowed-kept` is an accepted reason code: findings where the pass fired and the reviewer rewrote a claim to fit evidence are just as valuable as findings where a broken claim was dropped entirely — either way, the pass worked.
+
+---
+
 ## Final check
 
 Before finalizing, verify each finding is:
@@ -354,6 +384,7 @@ Before finalizing, verify each finding is:
 - plausible under a realistic failure scenario (not purely theoretical)
 - actionable for an engineer fixing the issue
 - framed at the **root invariant**, not a narrow symptomatic instance (apply the generalization test from calibration rules)
+- **claim-verified** — load-bearing claims have passed the Claim verification pass (section above); over-claims were narrowed, reclassified, or dropped with the drop logged in `findings_dropped_in_verification`
 - grounded by **test-trace** — you can answer "why didn't existing tests catch this?" per the subsection below
 - NOT already fixed in the current file on disk (re-read to confirm)
 - NOT an intentional decision documented in CLAUDE.md or an active spec

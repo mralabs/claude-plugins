@@ -35,6 +35,7 @@ Loose must-contain / must-NOT-contain assertions. Verified by a human after each
 - `trace_log.mutated_records_inspected` contains the `SessionManager` record with siblings `restoring`, `sessionRestored`, `dirty`, `loading` enumerated
 - `trace_log.ship_blocker_answer: "no"` — design debt does not block ship on its own
 - `trace_log.classification_notes` is a non-empty sentence
+- `trace_log.findings_dropped_in_verification` is **present** (schema v1.8 unconditional requirement). Empty array `[]` is acceptable if every candidate finding survived the Claim verification pass unchanged; a populated entry is also acceptable if a candidate claim was narrowed or dropped during the pass. Absence of the field is a regression.
 
 ## Must NOT contain
 

@@ -239,6 +239,7 @@ Do not start writing output until you have:
 - populated `lift_considered` on every finding whose recommendation is a runtime guard, OR named a system boundary in the finding body that explains why a lift is not the right primitive — per the Lift hierarchy rule and the v1.10.1 guard-legitimacy condition in `output-schema.md`
 - populated `trace_log.patch_chain_risk` with a non-empty `theme_assessment` whenever any Step 3b signal fired, regardless of the final `detected` value — the reviewer's theme-vs-root judgment is auditable
 - emitted a `scenarios_considered` line `prior-review ingestion: <status>` on every non-error run — the auto-detect outcome (loaded, absent, or rejected with reason) must always be visible per the observability rule in Step 3b
+- run the **Claim verification pass** on every candidate finding per `methodology.md` and populated `trace_log.findings_dropped_in_verification` (empty array `[]` is valid when every finding survived unchanged — absence of the field means the pass was skipped and is a grounding failure)
 - verified every required field listed in `output-schema.md` JSON rules is present — this is the backstop for future schema additions; when a new required field lands in a later version, the checklist does not need a per-field bullet if this backstop bullet catches it
 
 ---

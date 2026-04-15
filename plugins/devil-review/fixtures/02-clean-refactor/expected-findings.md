@@ -19,6 +19,7 @@ Loose must-contain / must-NOT-contain assertions. This fixture tests the *absenc
 - `trace_log.classification_notes` is a non-empty sentence.
 - `trace_log.domains_loaded: []` or the single matched domain, with classification_notes explaining why.
 - `trace_log.mutated_records_inspected` may be empty (no record writes in a rename), with `"no record writes in diff"` recorded as a scenario line.
+- `trace_log.findings_dropped_in_verification` is **present and empty** (`[]`). On a clean-refactor fixture no candidate findings exist in the first place, so the Claim verification pass has nothing to drop or narrow — but the field must still be emitted to prove the pass was run (per schema v1.8). Absence of the field is a regression signal.
 
 ### Patch-chain
 
