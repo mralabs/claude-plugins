@@ -115,6 +115,40 @@ When making non-trivial changes to methodology, schemas, or domain checklists:
 
 This is a learned practice: every release in this repo so far has benefited from applying the plugin's rules to its own changes before shipping.
 
+## Plan docs
+
+Multi-shipping plans live at `plugins/<name>/docs/<plan-name>.md` and evolve across shipping cycles. Examples today: `plugins/devil-review/docs/phase-3-plan.md` (unstarted items + item shipping notes + revision log) and `plugins/devil-review/docs/phase-2-5-plan.md` (completed and preserved for reference).
+
+Structure convention:
+
+- **Status** line at top — which items are shipped vs unstarted, and the plugin version at each shipping point
+- **Guiding principle** quote — keeps the scope honest ("don't design for hypothetical requirements" etc.)
+- **Items** — each a self-contained section with goal, shape, effort estimate, dependency, risk, semver, and shipping notes when landed
+- **Sequencing** — explicit ordering rationale, not just a list. Rationale often changes between initial planning and post-saha-test revisions
+- **Success criteria** — checkboxes, marked `[x]` as items ship
+- **Revision log** — dated entries for every material plan change (new item added, trigger activated, shipping series completed)
+
+Discipline:
+
+- Before re-planning an area that already has a plan doc, **read the existing doc first**. Do not re-derive from scratch — this is why plans persist across sessions.
+- Mark items as `✅ SHIPPED <date> (v<version> / schema v<N>)` inline in the item heading when they land; preserve the original spec text below with `**Original spec preserved below for reference.**` or similar.
+- Add a revision log entry for every saha test, trigger activation, or shipping series — the log is the "why did we do this when we did it" record.
+- Plan doc revisions are committed as `docs(<plugin>): ...` — no version bump.
+
+## Documentation updates on change
+
+When shipping a change, check whether it needs to be reflected in documentation surfaces. Update them in the same shipping or as a same-day follow-up. Documentation drift is invisible at commit time and only surfaces when a user hits the gap.
+
+Surfaces to check on every shipping:
+
+- **`plugins/<name>/README.md`** — capability descriptions, output format templates, schema field lists, verdict semantics, version-specific call-outs. A README that mentions v1.N schema fields but describes v1.N-4 behavior is stale documentation that misleads users.
+- **`README.md` (repo root)** — only when a plugin is added/removed or install flow changes. Most per-plugin changes do not touch root.
+- **`plugins/<name>/docs/*.md`** (plan docs) — mark items shipped, update status line, append revision log entries.
+- **`CLAUDE.md`** (this file) — when a repo-wide discipline is learned or revised.
+- **`.claude/rules/*.md`** — short citeable rule files that devil-review's Step 5.2b citation loader picks up. Keep in sync with CLAUDE.md authoritative text.
+
+Convention: the shipping commit body's "Self-review fixes rolled into this commit" section calls out which documentation surfaces were checked — either updated or explicitly confirmed unaffected. "README unchanged for this change — no user-facing behavior shifted" is a valid entry; silent omission is not. This makes documentation update a first-class concern at shipping time rather than an afterthought that accumulates as debt.
+
 ## Hooks setup (one-time)
 
 After cloning, run:
