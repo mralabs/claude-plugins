@@ -421,12 +421,13 @@ The detection is deterministic (git log scan, prior-review overlap check — all
 
 ### Prior-relation classification (when prior review is loaded)
 
-When Step 3b loads a prior-review snapshot, each current finding can be classified against the prior review's findings. This makes the attribution machine-readable instead of prose-buried in `theme_assessment`. Emit per-finding `prior_relation` on every current finding, with four categories (first matching rule wins):
+When Step 3b loads a prior-review snapshot, each current finding is classified against the prior review's findings. This makes the attribution machine-readable instead of prose-buried in `theme_assessment`. Emit per-finding `prior_relation.category` on every current finding, with **three** permitted values (first matching rule wins):
 
 1. **`carries-over`** — the same invariant violation is present in both the prior state and the current state. The prior fix either did not address this finding or addressed it only partially. The file:line may have shifted (code moved, got renamed, got refactored around) but the underlying invariant being violated is the same.
-2. **`resolved`** — the prior finding's location is no longer a finding in the current state. The fix worked for this item. Emitted only when explicitly reasoning about which prior findings are now gone — typically surfaced in `trace_log.prior_review_summary` rather than as a current finding, since resolved items are by definition not current findings.
-3. **`new-drift-from-fix`** — the finding is at a location the prior fix **introduced or changed**. The previous round's fix was correct for what it addressed, but opened a new foot-gun elsewhere. This is the highest-signal category — it tells the author "your previous fix made the system worse in a new way" and is the most common source of genuine patch-chain dynamics.
-4. **`pre-existing-orthogonal`** — the finding is at a location the prior review did not reach AND the prior fix did not touch. The bug existed in the code before the prior fix, but the prior reviewer just missed it. Not a patch-chain signal; different scrutiny surface.
+2. **`new-drift-from-fix`** — the finding is at a location the prior fix **introduced or changed**. The previous round's fix was correct for what it addressed, but opened a new foot-gun elsewhere. This is the highest-signal category — it tells the author "your previous fix made the system worse in a new way" and is the most common source of genuine patch-chain dynamics.
+3. **`pre-existing-orthogonal`** — the finding is at a location the prior review did not reach AND the prior fix did not touch. The bug existed in the code before the prior fix, but the prior reviewer just missed it. Not a patch-chain signal; different scrutiny surface.
+
+**`resolved` is NOT a finding-level category.** A prior finding whose bug is no longer present in the current state is, by definition, not a current finding — it belongs in `trace_log.prior_review_summary.resolved` as a **count**, not in `findings[].prior_relation.category` as an emitted value. Schema v1.11 initially allowed `resolved` at finding-level; v1.15.1 narrows this to the three values above. Emission of `category: resolved` on a finding is a schema-methodology inconsistency downstream consumers are entitled to reject.
 
 **When to classify.** For every current finding, when a prior review was loaded. When no prior review was loaded (fresh first run, or auto-detect returned `absent`), omit `prior_relation` entirely on all findings — there is no prior to relate to.
 
