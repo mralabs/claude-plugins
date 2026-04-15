@@ -284,20 +284,60 @@ Every finding carries a `scope` tag that says where the problem lives relative t
 
 **Default classification.** `in-diff` is the default. If you cannot clearly justify `pre-existing` or `future-work`, the classification is `in-diff`. Use the body of the finding to name why it is `pre-existing` ("discovered while tracing consumers of `X`") or `future-work` ("not a bug today; becomes one when feature Y lands") when you assign those values.
 
-**Verdict interaction.** Only `scope: in-diff` findings drive verdict escalation. Specifically:
-- `correctness_severity` is derived from the max severity among findings with `finding_type: correctness` **AND** `scope: in-diff`.
-- `design_debt_severity` is derived from the max severity among findings with `finding_type: design_debt` **AND** `scope: in-diff`.
-- `block` verdict requires at least one `in-diff` correctness finding at severity critical/high.
-- `refactor-recommended` clause (b) (design_debt count exceeds correctness count) uses `in-diff` counts on both sides.
-- `needs-attention` requires at least one `in-diff` material finding.
+**Verdict interaction.** Only `scope: in-diff` findings drive verdict escalation (the full filter also includes `reachability == "reachable"` as of schema v1.13 — see the "Reachability classification" section for the parallel filter). Specifically:
+- `correctness_severity` is derived from the max severity among findings with `finding_type: correctness` **AND** `scope: in-diff` **AND** `reachability: reachable`.
+- `design_debt_severity` is derived from the max severity among findings with `finding_type: design_debt` **AND** `scope: in-diff` **AND** `reachability: reachable`.
+- `block` verdict requires at least one correctness finding satisfying all three filters at severity critical/high.
+- `refactor-recommended` clause (b) (design_debt count exceeds correctness count) uses `in-diff` + `reachable` counts on both sides.
+- `needs-attention` requires at least one `in-diff` + `reachable` material finding.
 
-A review with only `pre-existing` and `future-work` findings lands at `verdict: approve` — the *diff itself* is safe to ship even though the reviewer surfaced unrelated issues. This is the semantically correct outcome: scope-tagged findings are transparent so the author knows they exist, but the review of this specific change is an approval.
+A review with only `pre-existing` and `future-work` findings lands at `verdict: approve` — the *diff itself* is safe to ship even though the reviewer surfaced unrelated issues. This is the semantically correct outcome: scope-tagged findings are transparent so the author knows they exist, but the review of this specific change is an approval. The same semantic applies to reviews where every finding is `hypothetical` or `requires-specific-config`: the reachable failure surface is clean, so the diff ships.
 
 **Hard cap interaction.** All three scopes count toward the findings hard cap (3 under 500 lines / 5 under 1500 / 3 per split group). Without this rule, a reviewer could pad with `pre-existing` findings to drown out a single `in-diff` finding. The cap forces prioritization across scopes: if you have room for 3 findings and one is a critical in-diff bug, the other two slots should usually go to the next two highest-priority in-diff findings, not to pre-existing observations — unless a pre-existing finding is itself severe enough to warrant the slot.
 
 **Backward compatibility.** Findings without a `scope` field (replay of pre-v1.10 snapshots) are treated as `in-diff` by default. This preserves verdict calculations on legacy payloads identically — v1.9 payloads run through v1.10 rules produce the same verdicts.
 
 **Anti-pattern to avoid.** Using `future-work` as a way to avoid hard calls. "The diff has a subtle correctness issue but I'm marking it `future-work` so the review approves" is a calibration failure — if the diff is broken today, the scope is `in-diff`, severity is real, and the verdict is `block` or `needs-attention`. `future-work` requires a **concrete next-step that the diff does not need**, not a vague "consider improving this later".
+
+---
+
+## Reachability classification (mandatory per-finding)
+
+Every finding carries a `reachability` tag orthogonal to `severity`, `confidence`, and `scope`. It answers the question "how likely is this bug to fire in practice?" — a dimension that is structurally separate from "how bad is it when it fires" (`severity`) and from "how sure is the reviewer the bug exists at all" (`confidence`). Three values:
+
+- **`reachable`** — the bug fires under normal usage on at least one code path the reviewer can name. The finding body must include a concrete path: "triggered by user clicking X", "fires on any PTY spawn", "any API request with empty body", "cron tick at :00". A reachable finding is a bug that will hit a user without any unusual conditions.
+- **`hypothetical`** — the bug would fire *if* the preconditions held, but the reviewer cannot currently name a code path that produces those conditions. Often derived from reasoning-from-types ("the type allows null so a null would crash") or reasoning-from-patterns ("this looks like a TOCTOU, but I cannot point at a caller that races") rather than reasoning-from-paths. Real enough to surface, not real enough to claim it fires.
+- **`requires-specific-config`** — the bug fires only under a specific configuration, environment, feature flag, or platform the reviewer has observed or can document. Stronger than `hypothetical` (the config exists and is named in the body) but weaker than `reachable` (the config is not on the main path). Examples: "only when `FEATURE_X` env var is set", "only on Windows under MSVCRT argv parsing", "only when the user has opted into experimental API v2".
+
+**Why this field exists.** `confidence` is the reviewer's epistemic uncertainty about whether the finding is *correct*. `reachability` is a structural property of the code path. A reachable finding can have low confidence (reviewer is not sure their reading of the code is right); a hypothetical finding can have high confidence (reviewer is sure this WOULD be a bug if reached — they just cannot name a reaching path). Conflating the two loses information: a reader cannot distinguish "high-confidence bug that fires hourly" from "high-confidence theoretical bug that has never fired and may never fire". Saha test #3 surfaced the concrete confusion — a `confidence: 0.7` hypothetical Windows-specific trailing-backslash finding read as equal-weight with a `confidence: 0.85` async listener race on the main user flow, because confidence alone collapsed two orthogonal dimensions.
+
+**Classification decision tree (first matching rule wins):**
+
+1. Can you name a concrete call path from an entry point (user action, cron, boot, API route, event handler, deploy hook) to the claimed bug behavior? → `reachable`. Record the path in the finding body.
+2. Can you name the specific config, environment variable, feature flag, platform, or opt-in state that would make the bug reachable? → `requires-specific-config`. Name the specific thing in the body.
+3. Neither of the above — the bug is inferred from types, schemas, or general code-shape reasoning without a traced path or named config? → `hypothetical`.
+
+**Bias rule.** When uncertain, classify as `hypothetical` rather than `reachable`. Promoting to `requires-specific-config` requires naming the specific config in the body; promoting to `reachable` requires naming a concrete path. "It probably fires somewhere" does not clear the bar for either — it is the canonical `hypothetical` finding.
+
+**Default classification.** `reachable` is the default for payloads that lack the field (pre-v1.13 snapshots replayed under v1.13 rules). This preserves pre-v1.13 verdict calculations identically: before v1.13 every finding drove verdict escalation regardless of reachability, and the default-to-reachable rule keeps the same outcome when replaying legacy payloads through v1.13 rules.
+
+**Verdict interaction.** Only `reachability: reachable` findings drive verdict escalation (mirroring Item 9's `scope` filter from v1.10):
+
+- `correctness_severity` is derived from the max severity among findings with `finding_type: correctness` AND `scope: in-diff` AND `reachability: reachable`.
+- `design_debt_severity` same filter (but applied to `finding_type: design_debt`).
+- `block` verdict requires at least one finding satisfying all three filters (correctness + in-diff + reachable) at severity critical or high.
+- `needs-attention` requires at least one `in-diff` + `reachable` material finding.
+- `refactor-recommended` clause (b) (design_debt count exceeds correctness count) uses `in-diff` + `reachable` counts on both sides.
+
+`hypothetical` and `requires-specific-config` findings emit transparently but do not escalate. Pattern identical to `scope` filter: a review whose only findings are hypothetical or config-specific lands at `verdict: approve` because the *reachable* failure surface is clean — the hypothetical observations are transparent for the author to consider but do not block ship.
+
+**Hard cap interaction.** All three reachability levels count toward the hard cap (same rule as scope). A reviewer cannot pad with hypothetical findings to drown out a reachable one — the cap forces prioritization, and when it fires the weakest findings drop regardless of reachability level.
+
+**Interaction with severity.** Reachability is *not* a severity modifier. A reachable bug is not automatically more severe than a hypothetical one; it is just more urgent. Severity reflects impact when the bug fires; reachability reflects likelihood of firing. Do not silently drop severity on hypothetical findings — the `hypothetical` tag itself is the calibration signal, and the verdict filter already prevents it from escalating inappropriately. Silent severity demotion on hypothetical findings is the exact failure mode the tag exists to prevent.
+
+**Interaction with Claim verification pass.** The pass's step 4 (reachability claims specifically) now has a natural resolution: if step 4 cannot name a concrete call path, the finding is not dropped — it is classified as `hypothetical` or `requires-specific-config`. Drop is reserved for findings where even the hypothetical framing does not hold (no plausible precondition under which the bug would fire). This is a refinement, not a reversal, of step 4: the pre-v1.13 "reclassify or drop" guidance now has three paths instead of two, and the reclassify path is the common one.
+
+**Anti-pattern to avoid.** Over-classifying as `reachable` to drive verdict up. This is the in-diff-overreach pattern from Item 9 applied to reachability: a reviewer tempted to escalate a weak finding can label it `reachable` with a vague "fires when someone calls this code" rather than `hypothetical`. Mitigation is the decision tree: step 1 requires naming a *concrete* call path from an entry point, not just "it is called from somewhere". If you cannot name the entry point, the classification is not `reachable`.
 
 ---
 
@@ -378,19 +418,20 @@ A single finding has exactly one `finding_type`. Findings that straddle categori
 
 **Severity axis derivation:**
 
-- `correctness_severity` = max severity among findings with `finding_type == "correctness"` **AND** `scope == "in-diff"` (including the default case where `finding_type` is absent on replayed v1.5 payloads and `scope` is absent on pre-v1.10 payloads — both default to `correctness` and `in-diff` respectively). If no such findings exist, emit `"none"` or omit the field — both are valid per the schema.
-- `design_debt_severity` = max severity among findings with `finding_type == "design_debt"` **AND** `scope == "in-diff"`. Same emit-or-omit rule.
+- `correctness_severity` = max severity among findings with `finding_type == "correctness"` **AND** `scope == "in-diff"` **AND** `reachability == "reachable"` (including the default cases — `finding_type` absent on replayed v1.5 payloads defaults to `correctness`, `scope` absent on pre-v1.10 payloads defaults to `in-diff`, `reachability` absent on pre-v1.13 payloads defaults to `reachable`). If no such findings exist, emit `"none"` or omit the field — both are valid per the schema.
+- `design_debt_severity` = max severity among findings with `finding_type == "design_debt"` **AND** `scope == "in-diff"` **AND** `reachability == "reachable"`. Same emit-or-omit rule.
 - `architectural_smell` and `best_practice_violation` findings do not roll up to a dedicated axis today. They still carry `findings[].severity` and still count toward the hard cap, but they do not drive the verdict derivation directly. If real usage surfaces a need for a dedicated axis for either category, add one in a future bump — do not retrofit the existing axes.
 - **Scope filter rationale.** `pre-existing` and `future-work` findings are allowed to be reported but do not drive verdict escalation — per the "Scope classification" section above. A review whose only findings are pre-existing bugs in unrelated code lands at `verdict: approve` because the *diff itself* is safe to ship; the pre-existing issues are surfaced transparently so the author can file follow-ups without mixing them into the ship decision.
+- **Reachability filter rationale.** `hypothetical` and `requires-specific-config` findings are allowed to be reported but do not drive verdict escalation — per the "Reachability classification" section above. A review whose only findings are hypothetical or config-specific lands at `verdict: approve` because the *reachable* failure surface is clean. The pattern is identical to the scope filter: transparency to the author, no silent drop-through to the verdict.
 
 **Verdict derivation — four rules, strict precedence, evaluated top to bottom:**
 
-All rules below filter on `scope == "in-diff"` (the default when `scope` is absent on pre-v1.10 payloads). `pre-existing` and `future-work` findings are emitted for transparency but do not drive verdict — see the "Scope classification" section for the rationale.
+All rules below filter on `scope == "in-diff"` AND `reachability == "reachable"` (the defaults when `scope` is absent on pre-v1.10 payloads and `reachability` is absent on pre-v1.13 payloads). `pre-existing`/`future-work` and `hypothetical`/`requires-specific-config` findings are emitted for transparency but do not drive verdict — see the "Scope classification" and "Reachability classification" sections for the rationale.
 
-1. **`block`** — at least one finding with `finding_type == "correctness"` (or absent, treated as correctness) AND `scope == "in-diff"` (or absent, treated as in-diff) AND severity `critical` or `high`, AND `ship_blocker_answer == "yes"`. Identical to the v1.5 rule on pre-v1.10 payloads; pre-v1.10 payloads flow through unchanged because both defaults (correctness + in-diff) preserve the original filter.
-2. **`needs-attention`** — rule 1 does not apply, at least one `in-diff` finding of material severity exists, `ship_blocker_answer == "no"`. The reviewer judges the issues are real but fixable in place — keep iterating.
-3. **`refactor-recommended`** — rule 1 does not apply, AND `design_debt_severity` (computed from `in-diff` findings only) is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 feature) OR (b) the count of `in-diff design_debt` findings is strictly greater than the count of `in-diff correctness` findings in this review, AND (c) the chain is NOT closing — `prior_review_summary` is absent OR `resolved < still_open + new_drift_introduced` (v1.11 feature — see "Verdict rule 3 clause (c) — chain-closing override" in the Patch-chain detection section). Clause (c) prevents `refactor-recommended` from firing when iteration is actually making things better. Semantic: *"there may be correctness issues, but fixing them in place will not address the real problem; step back and restructure."* `ship_blocker_answer == "no"` — by definition this is not a correctness ship-blocker.
-4. **`approve`** — zero findings, or all findings are `pre-existing`/`future-work`, or none of rules 1–3 apply. A review with only pre-existing/future-work findings lands here: the diff ships, unrelated issues are surfaced for the author to triage separately.
+1. **`block`** — at least one finding with `finding_type == "correctness"` (or absent, treated as correctness) AND `scope == "in-diff"` (or absent, treated as in-diff) AND `reachability == "reachable"` (or absent, treated as reachable) AND severity `critical` or `high`, AND `ship_blocker_answer == "yes"`. Identical to the v1.5 rule on pre-v1.10 payloads and to the v1.12 rule on pre-v1.13 payloads; legacy payloads flow through unchanged because all three defaults (correctness + in-diff + reachable) preserve the original filter.
+2. **`needs-attention`** — rule 1 does not apply, at least one `in-diff` + `reachable` finding of material severity exists, `ship_blocker_answer == "no"`. The reviewer judges the issues are real but fixable in place — keep iterating.
+3. **`refactor-recommended`** — rule 1 does not apply, AND `design_debt_severity` (computed from `in-diff` + `reachable` findings only) is `high` or `critical`, AND either (a) a patch-chain signal fires (v1.10.0 feature) OR (b) the count of `in-diff` + `reachable` `design_debt` findings is strictly greater than the count of `in-diff` + `reachable` `correctness` findings in this review, AND (c) the chain is NOT closing — `prior_review_summary` is absent OR `resolved < still_open + new_drift_introduced` (v1.11 feature — see "Verdict rule 3 clause (c) — chain-closing override" in the Patch-chain detection section). Clause (c) prevents `refactor-recommended` from firing when iteration is actually making things better. Semantic: *"there may be correctness issues, but fixing them in place will not address the real problem; step back and restructure."* `ship_blocker_answer == "no"` — by definition this is not a correctness ship-blocker.
+4. **`approve`** — zero findings, or all findings are `pre-existing`/`future-work` or `hypothetical`/`requires-specific-config`, or none of rules 1–3 apply. A review with only non-verdict-driving findings lands here: the diff ships, orthogonal issues are surfaced for the author to triage separately.
 
 **Compatibility property.** Any v1.5-era payload re-run under v1.6+ rules produces the same verdict, and any v1.9-era payload re-run under v1.10 rules produces the same verdict:
 
@@ -398,6 +439,7 @@ All rules below filter on `scope == "in-diff"` (the default when `scope` is abse
 - v1.5 payloads have no `design_debt_severity` → absent treated as `"none"` → rule 3 clause (a) and (b) both unreachable without v1.6 inputs → rule 3 never fires.
 - v1.9-and-earlier findings have no `scope` → default-to-in-diff → the scope filter is a no-op on legacy payloads, preserving verdict calculation identically. A v1.9 review that would have emitted `block` still emits `block` under v1.10 rules.
 - v1.10-and-earlier payloads have no `prior_review_summary` → clause (c) of rule 3 evaluates `prior_review_summary` as absent → "chain is closing" condition is false → clause (c) does not block a `refactor-recommended` that was already going to fire. Legacy payloads that previously emitted `refactor-recommended` continue to emit it.
+- v1.12-and-earlier findings have no `reachability` → default-to-reachable → the reachability filter is a no-op on legacy payloads, preserving verdict calculation identically. A v1.12 review that would have emitted `block` still emits `block` under v1.13 rules; the new filter only changes outcomes when reviewers actively classify a finding as `hypothetical` or `requires-specific-config`, which legacy payloads never do.
 - Rules 2 and 4 reduce exactly to the v1.5 `needs-attention` and `approve` rules respectively.
 
 This property is what keeps every minor bump a genuine minor bump per the repo's semver discipline, not a major one. Do not add rules that break it without bumping to a major version.

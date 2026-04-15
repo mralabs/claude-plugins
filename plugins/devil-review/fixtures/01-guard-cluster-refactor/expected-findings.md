@@ -22,6 +22,7 @@ Loose must-contain / must-NOT-contain assertions. Verified by a human after each
 
 - At least one finding with `finding_type: design_debt` — the guard cluster itself is the finding.
 - The design_debt finding's `scope` is `in-diff` — the fourth guard is being added by this diff, so the pattern it completes is causally introduced by this change. `pre-existing` would be wrong here; the diff is responsible for pushing the pattern over the refactor threshold.
+- The design_debt finding's `reachability` is `reachable` (schema v1.13) — the fragmented state machine is reached on any `restoreSession` invocation, which is a named entry point with concrete consumers. `hypothetical` would be wrong because the reviewer can point at the four consumers of `SessionManager` whose guard checks will fire; `requires-specific-config` would be wrong because no config gates the behavior. The decision tree's step 1 (concrete call path from an entry point) resolves here.
 - The design_debt finding's `recommendation` names **writer-lift** (single state machine / single-writer lock / single state enum) as the preferred consolidation, not "add another guard" or "rename the flags".
 - The design_debt finding's `lift_considered` object is populated. After v1.10.1, the following must hold for the guard-on-fourth-flag framing:
   - `type_lift.viable: true` with a rationale referencing a state enum / discriminated union
