@@ -1,7 +1,7 @@
 # devil-review — Phase 3 Plan
 
-**Status:** Item 1 shipped 2026-04-14 (plugin v1.10.0). Items 2–5 still unstarted.
-**Plugin version at time of writing:** v1.3.2 (initial spec); v1.10.0 (Item 1 shipping revision)
+**Status:** Item 1 shipped 2026-04-14 (plugin v1.10.0). Item 6 triggered + expanded 2026-04-15 (second saha test). Items 2–5 and Items 7–9 still unstarted.
+**Plugin version at time of writing:** v1.3.2 (initial spec); v1.10.0 (Item 1 shipping revision); v1.11.0 (auto-detect prior-review); 2026-04-15 revision captures saha test #2 feedback
 **Scope:** Everything deferred out of v1.3.x. Phase 1 (architecture) and Phase 2 (content) landed in v1.3.0; patches in v1.3.1/v1.3.2. Phase 3 is the "durability & maturation" bucket — optional, pickable à la carte after real usage feedback.
 
 > **Guiding principle:** Don't design for hypothetical requirements. Every Phase 3 item is justified against an observed gap, not a theoretical one. Use the skill in real PRs first; let friction dictate priority.
@@ -257,20 +257,183 @@ Until one of these fires, prose attribution is considered sufficient per the exi
 
 **Risk:** Low–medium. New emission burden on every finding when prior loaded (one more object per finding). LLM classification of the four categories is ambiguous in edge cases (e.g., "fix touched this line and a new issue appeared — is it `new-drift-from-fix` or `pre-existing-orthogonal` the fix didn't cause but highlighted?"). Decision tree above covers the common cases; edge cases fall back to `pre-existing-orthogonal` per the "when in doubt, drop severity" spirit.
 
+### 2026-04-15 update — saha test #2 triggered + expanded Item 6
+
+**Trigger fired.** Second real-usage saha test (two-round devil-review on the same project) produced concrete observations that activate Item 6's "user reports 'I can't tell at a glance which findings are the real new bugs vs residual drift'" trigger. Reviewer ran Round 2 after applying Round 1's fixes; Round 2 re-flagged a Round 1 finding at lower severity (`medium / design_debt`) without crediting the prior round. Prose attribution mechanism (v1.11.0) worked for the *review framing* but did not surface **which individual findings resurfaced**.
+
+**Expansion 1 — severity dampening for re-surfaced findings (new rule in methodology):**
+
+When `prior_relation.category == "carries-over"` on a finding:
+- If prior severity was `high` or `critical` and current state still exhibits the same invariant violation → hold severity at prior level (do not silently demote).
+- If the finding is a re-surface at equal-or-lower severity compared to prior → bar is raised: only emit if the reviewer can articulate *why* the prior fix did not address it. If the "why" is "fix was unrelated to this aspect", reclassify as `pre-existing-orthogonal` and drop severity one notch, not two.
+- Net effect: resurfaced findings either get credit (same severity + carries-over tag, reviewer-visible) or get dropped. They do NOT get silently downgraded to noise.
+
+**Expansion 2 — top-level machine-readable decision field (new schema addition):**
+
+In addition to `verdict`, emit a top-level `decision` block:
+```json
+"decision": {
+  "action": "iterate | stop-and-refactor | ship",
+  "patch_chain_detected": true,
+  "iteration_count": 2,
+  "rationale": "<one-sentence why>"
+}
+```
+
+Derivation rules:
+- `patch_chain_detected: true` iff prior review was loaded AND ≥1 finding has `prior_relation.category == "carries-over"` AND the current diff touches the same files as the prior diff AND the new finding count is not materially lower than prior.
+- `action: stop-and-refactor` iff `patch_chain_detected` AND `iteration_count ≥ 2`. Overrides `verdict` for automation purposes; `verdict` remains prose-facing, `decision.action` is script-facing.
+- `action: ship` iff `verdict: approve` AND prior review shows `resolved ≥ still_open + new_drift_introduced` (chain closing).
+- `action: iterate` otherwise.
+- `iteration_count` derived from prior-review session metadata; defaults to 1 when no prior loaded.
+
+**Why expand now, not later:** the field is the missing piece for CI gating and `/loop`-style auto-stop. Saha test reviewer explicitly called it out: "Script-okunabilir bir field gerek: decision: iterate | stop-and-refactor | ship, patch_chain_detected: true/false, iteration_count: N". Without it, patch-chain dampening stays prose-bound and automation remains impossible.
+
+**Revised effort estimate:** 3–4 hours (was 2–3). Methodology additions, schema fields for both `prior_relation` and `decision`, verdict-derivation rule update, README prose, fixture regression (01-guard-cluster-refactor fixture needs `decision` assertions).
+
+**Backward compatibility:** `decision` block is additive. Absence = pre-expansion behavior. Fixture snapshots must be re-captured; schema consumers parsing only `verdict` continue to work.
+
+---
+
+## Item 7 — Self-fact-check pass
+
+**Goal:** Before emitting findings, reviewer verifies each claim against the diff/code it references. Catch factual over-claims and unsupported reachability assertions in the reviewer's own output.
+
+**Why it matters (observed, not speculative):** Saha test #2 produced two concrete factual errors in reviewer output:
+1. "Only surfaces the proposal-delete error when both fail" — actually surfaces when either fails; asymmetry is only in the both-fail case. Partially wrong.
+2. "Widened here because zero-source globs ... no-write/no-delete code path" — in reality cancel/retry paths all route to cleanup; widening was theoretical. Unsupported reachability claim.
+
+These are credibility bugs. A reviewer that over-claims once loses authority for the entire review. Every other Phase 3 item is gated on this floor: no point shipping structured attribution if the attributed claims are factually wrong.
+
+**Non-goals:**
+- Not a formal verification system. Reviewer's best-effort re-check against visible code, not a proof.
+- Not re-running the whole review. One additional pass over emitted findings only.
+
+**Shape:** New methodology subsection titled "Claim verification pass (pre-emit)". Added to SKILL.md Step 6 (post-finding-generation, pre-emit):
+
+For each candidate finding:
+1. **Restate the load-bearing claim** in one sentence (e.g., "this path is unreachable when X", "this function overwrites Y when Z").
+2. **Locate supporting evidence** in the diff or in the referenced code (file:line). Quote 1–3 lines.
+3. **Check for falsifiers** — is there any visible branch, caller, or code path that contradicts the claim? If yes, either narrow the claim or drop the finding.
+4. **Reachability claims** specifically: if the finding says "widened / narrowed / unreachable / only-fires-when", trace at least one concrete call path from an entry point to the claimed behavior. If no path can be stated, reclassify the finding from behavioral to structural (e.g., "this branch is hard to reason about" instead of "this branch is unreachable").
+
+**Emit constraint:** findings that fail the verification pass are either narrowed, reclassified, or dropped. Dropped findings are noted in the trace log as `findings_dropped_in_verification: [{original_claim, reason}]` — visible evidence that the pass fired.
+
+**Estimated effort:** 1.5–2 hours. Methodology subsection, SKILL.md step insertion, trace-log field addition, one fixture update (02-clean-refactor) to demonstrate the empty `findings_dropped_in_verification: []` case.
+
+**Dependency:** None. Should ship *before* Item 6 expansion — structured attribution on unverified claims is worse than prose attribution on verified ones.
+
+**Risk:** Low. Pure methodology addition. Risk is only that the LLM treats the pass as performative ("I verified") without actually doing it — mitigation is to require the quote-1-to-3-lines step as visible evidence in the trace log.
+
+**Semver:** minor bump (new mandatory methodology pass + new trace-log field).
+
+---
+
+## Item 8 — Project-rule citation loader
+
+**Goal:** When the project contains explicit rule files (`.claude/rules/*.md`, `CLAUDE.md`, `code-review.md`, or similar), load them as part of review setup and tag each finding with the specific rule it cites.
+
+**Why it matters (observed, not speculative):** Saha test #2 project had `.claude/rules/no-patches.md` and `code-review.md` present. Reviewer's output implicitly followed those rules (e.g., "writer-lift önerisi no-patches.md'ye bire bir oturdu") but did not explicitly cite them. Reviewer feedback: *"plugin bunları load edip her finding'i ilgili kuralla eşleştirmeli. Bu tek başına review'un mesaj gücünü ciddi artırır."*
+
+A finding that says "this violates the project's no-patches rule at `.claude/rules/no-patches.md`" is materially more actionable than "this is a patch on a patch". The citation turns the reviewer from opinion-source to rule-enforcer.
+
+**Non-goals:**
+- Not a general-purpose linter. Rules are project-local prose, not enforceable patterns.
+- Not automatic rule-matching by keyword. LLM-driven mapping, not regex.
+- Not a replacement for the built-in `CLAUDE.md` already auto-loaded by Claude Code. This item adds discovery of *additional* project-local rule files the skill should consult during review.
+
+**Shape:**
+
+New SKILL.md step (early — right after reading diff, before generating findings):
+1. `Glob` for project rule candidates:
+   - `.claude/rules/*.md`
+   - `code-review.md`, `CODE_REVIEW.md`, `REVIEW.md`
+   - `docs/review-rules.md`, `docs/contributing.md`, `CONTRIBUTING.md`
+   - Any file matching `**/rules/*.md` at repo root or one level deep
+2. Read up to ~10 of the most relevant (by filename + size heuristic). Cap total loaded rule content at ~30KB to avoid context bloat.
+3. For each file, extract short rule identifiers if present (e.g., heading names).
+4. During finding generation, for each finding, attempt to cite applicable rule(s) from the loaded corpus.
+
+New schema field on each finding (additive):
+```json
+"rule_refs": [
+  {
+    "source": ".claude/rules/no-patches.md",
+    "rule": "Enforce at the writer, not downstream",
+    "quote": "<1-2 line direct quote from the rule file>"
+  }
+]
+```
+
+Empty array when no applicable rule exists. Direct-quote requirement prevents the LLM from inventing rule text.
+
+**Trace log addition:** `project_rules_loaded: [{path, bytes}]` — visible evidence of which rule files were consulted.
+
+**Estimated effort:** 2–2.5 hours. Glob + load step, methodology subsection, schema field, one fixture update that includes a synthetic rule file to validate citation behavior.
+
+**Dependency:** None strictly, but best shipped after Item 7 — citing rules you haven't verified your finding against is worse than no citation at all.
+
+**Risk:** Medium. Context bloat if cap is wrong. LLM may invent rule quotes if quote requirement is soft — must be enforced as "findings with `rule_refs[].quote` not present verbatim in the cited file are schema-invalid".
+
+**Semver:** minor bump (new loader + new schema field).
+
+---
+
+## Item 9 — Finding scope tag
+
+**Goal:** Classify each finding as `in-diff | pre-existing | future-work` so consumers can distinguish "fix this now" from "latent bug that existed before this PR" from "improvement for later".
+
+**Why it matters (observed, not speculative):** Saha test #2 reviewer flagged a "latent pre-diff" issue (the delete_import_artifacts asymmetry) but the output did not structurally distinguish this from in-diff findings. The `code-review.md` rule in that project explicitly says "stay scoped to the diff". Without a scope tag, the reviewer is either rule-violating (by raising pre-diff issues) or under-informing (by dropping them silently). A scope tag resolves the tension: pre-diff findings are allowed but explicitly tagged so the author can choose.
+
+**Non-goals:**
+- Not a filter. Pre-diff findings are still emitted. The tag is metadata, not gating.
+- Not a severity modifier. Severity stands on its own.
+
+**Shape:**
+
+New finding-level field:
+```json
+"scope": "in-diff | pre-existing | future-work"
+```
+
+Definitions:
+- `in-diff` — the problem is in code added or modified by this diff. Default.
+- `pre-existing` — the problem exists in the code the diff did not touch, but was discovered during review of this diff (e.g., a caller the reviewer inspected). Should be raised but clearly tagged.
+- `future-work` — the finding is a design improvement, not a bug. Reviewer is suggesting a next-step, not blocking the current change.
+
+**Methodology addition:** new subsection "Scope classification" — decision tree for the three categories, with emphasis that `in-diff` is default and reviewer must justify `pre-existing` or `future-work` in the finding body.
+
+**Verdict interaction:** `pre-existing` and `future-work` findings do NOT count toward `verdict: block` or `refactor-recommended` escalation. Only `in-diff` findings drive verdict. This keeps the scope tag from becoming a severity back-door.
+
+**Estimated effort:** 1–1.5 hours. Schema field, methodology subsection, verdict-rule update, fixture updates for all three fixtures (each gets at least one finding with an explicit scope tag).
+
+**Dependency:** None. Shippable independently.
+
+**Risk:** Low. Additive schema, clear decision tree. Main risk is reviewer over-using `future-work` as a way to avoid hard calls — mitigation is the methodology instruction "future-work requires a concrete next-step, not a vague 'consider'".
+
+**Semver:** minor bump.
+
 ---
 
 ## Sequencing recommendation
 
 Not a fixed order — pick based on observed need.
 
-1. **Default starting point: Item 2 (README good/bad).** Lowest risk, highest onboarding value, unblocks nothing but helps everyone. Do this first unless a regression scare happens.
-2. **If you edit any prompt file (SKILL.md / methodology.md / output-schema.md / any domain): Item 1 (fixtures).** The first prompt edit after real use is the moment fixtures become worth their cost.
-3. **If Item 1 is done and output still feels shallow: Item 3 (agent test).** Uses fixtures from Item 1, so strictly downstream.
-4. **Only on real demand: Item 4 (deferred domains).**
-5. **Only at scale: Item 5 (dynamic discovery).**
-6. **Only when automation consumer appears or prose attribution proves insufficient: Item 6 (structured prior-review attribution).**
+**Post saha-test #2 recommended sequence (2026-04-15):**
 
-**Do not batch.** Each item is independent and shippable alone. Batching increases risk and obscures which change caused what behavior shift.
+1. **Ship Item 7 (self-fact-check pass) first.** Credibility floor. Every other item compounds on top of a reviewer that doesn't over-claim. Prompt-only, no schema change, low risk.
+2. **Then Item 8 (project-rule citation loader).** Highest visible message-power gain per saha feedback. Additive schema. Best if Item 7 shipped first so cited rules attach to verified claims.
+3. **Then Item 9 (scope tag).** Small additive schema, resolves the "stay in diff vs raise latent bug" tension.
+4. **Then Item 6 expanded (structured attribution + severity dampening + decision field).** Largest schema footprint. Items 7–9 may reveal edge cases that sharpen Item 6's shape; shipping it last minimizes rework.
+
+**Remaining original items (unchanged priority):**
+
+5. **Item 2 (README good/bad).** Lowest risk, onboarding value. Do whenever; good for a "palate cleanser" between larger shippings.
+6. **Item 3 (agent test).** Uses fixtures from Item 1. Only if output still feels shallow after Items 6–9 ship.
+7. **Item 4 (deferred domains).** Only on real demand.
+8. **Item 5 (dynamic discovery).** Only at scale (12+ domains or external contributor).
+
+**Do not batch.** Each item is independent and shippable alone. Batching increases risk and obscures which change caused what behavior shift. This is especially true for Items 6–9 which each touch schema — batching makes regression bisection across fixtures harder.
 
 ---
 
@@ -283,9 +446,12 @@ Phase 3 is never strictly "done" — it's a menu, not a milestone. But we can ca
 - [ ] The `agent:` line in SKILL.md is either justified by a test or removed (Item 3)
 - [ ] At least one deferred domain has been added OR explicitly declared not needed (Item 4)
 - [ ] Dynamic discovery has been implemented OR explicitly declared premature at current scale (Item 5)
-- [ ] Structured prior-review attribution shipped OR a saha test explicitly shows prose attribution remains sufficient (Item 6)
+- [ ] Structured prior-review attribution shipped (Item 6 expanded) OR a saha test explicitly shows prose attribution remains sufficient — as of 2026-04-15, saha test #2 triggered expansion; now gated on shipping, not on demand signal
+- [ ] Self-fact-check pass shipped (Item 7) OR saha evidence shows reviewer claims are grounded without it
+- [ ] Project-rule citation loader shipped (Item 8) OR saha evidence shows implicit rule-following is sufficient without explicit citation
+- [ ] Finding scope tag shipped (Item 9) OR saha evidence shows in-diff/pre-existing distinction does not matter in practice
 
-All six can remain open indefinitely without blocking any user-facing feature. That is the point of Phase 3.
+All nine can remain open indefinitely without blocking any user-facing feature. That is the point of Phase 3.
 
 ---
 
@@ -294,3 +460,4 @@ All six can remain open indefinitely without blocking any user-facing feature. T
 - **2026-04-11** — Initial spec written. Plugin at v1.3.2. Phase 3 still unstarted.
 - **2026-04-14** — Item 1 (fixtures regression harness) shipped. Trigger: Phase 2.5 shipping (v1.8.1 + v1.9.0 + v1.10.0) produced 3 `no-test` findings in self-review, moving fixtures from "optional menu item" to "blocker on next prompt edit". Shipped 3 fixtures (guard-cluster-refactor, clean-refactor, unsafe-migration) with expected-findings assertions; no last-snapshot.md yet (captured on first real run). Items 2–5 remain unstarted per "real demand only" policy.
 - **2026-04-14 (same-day)** — Item 6 (structured prior-review attribution) added to the menu. Trigger: first saha test of `--prior-review` flag (pre-v1.11.0 auto-detect) in a real review produced explicit attribution language ("prior findings resolved, new findings introduced by fix, not a patch-chain pattern") and dampened an otherwise likely `refactor-recommended` verdict to `needs-attention`. Reviewer identified the mechanism as the single most valuable part of the patch-chain detection feature, but noted the attribution is emitted as prose (in `theme_assessment` and finding body annotations) rather than structured fields. Item 6 spec captures the fields and verdict-derivation integration for when automation consumers arrive or prose attribution proves insufficient. Unstarted; gated on observable demand.
+- **2026-04-15** — Saha test #2 (two-round devil-review on a real project) produced seven concrete observations. Three of them (finding-diff across rounds, severity recalibration on re-surfaced findings, structured `decision` field for CI/`/loop` gating) triggered Item 6's original triggers and expanded its spec: added severity dampening rule for `carries-over` findings, added top-level `decision` block with `action | patch_chain_detected | iteration_count | rationale`. Four new items added to the menu — Item 7 (self-fact-check pass, closing two observed factual errors in reviewer output), Item 8 (project-rule citation loader, making implicit rule-following explicit), Item 9 (finding scope tag, resolving in-diff vs pre-existing tension). Sequencing revised: Items 7 → 8 → 9 → 6-expanded, because credibility floor (7) and verified-claim citations (8) compound on each other, and Item 6's larger schema footprint benefits from edge cases surfaced by 7–9. Plugin at v1.11.0; no version bump this revision (doc-only).
