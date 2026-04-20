@@ -1,7 +1,7 @@
 # devil-review — Content Consolidation Plan
 
-**Status:** All phases (A–E) shipped 2026-04-20 as refactor commits. Plan complete. Marker patch bump v1.19.0 → v1.19.1 landed after Phase E to make the consolidation pass visible as a single version marker on plugin-install timelines.
-**Plugin version at time of writing:** v1.19.1 (after the marker bump; each individual phase commit was refactor-class with no per-phase version bump).
+**Status:** Phases A–E shipped 2026-04-20 as refactor commits; marker patch bump v1.19.0 → v1.19.1 landed same-day to surface the consolidation pass as a single version marker. Phase F and Phase G added post-v1.19.1 as demand-gated items (unstarted; pickable à la carte per trigger below — same discipline as `phase-3-plan.md`'s unstarted items). The original A–E scope (structural dedup) is complete; F and G are leftover items surfaced during the initial audit but not formalized until the post-ship retrospective.
+**Plugin version at time of writing:** v1.19.1 (after the A–E + marker bump series; F and G have no version bump planned since both are refactor-class).
 
 **Scope:** Reduce core content bloat across `SKILL.md` + `methodology.md` + `output-schema.md` (pre-Phase-A baseline: 1495 markdown lines / ~216 KB loaded on every invocation — the character count is the load-relevant metric, line counts vary because version-history entries and rule paragraphs are long single lines) by eliminating structural duplication. No behavioral change — same rules, same verdicts, same schema; authoritative source consolidated and near-duplicates converted to cross-references.
 
@@ -169,7 +169,71 @@ Revised scope: keep the DEFAULT RULE statement at each consumer site (schema rea
 
 ---
 
+## Item F — Threshold rationale consolidation ⏳ UNSTARTED (demand-gated)
+
+**Goal:** The "uncalibrated starting value" discipline for thresholds (`≥ 2` chain-of-rejections resurface count, the v1.10 patch-chain thresholds, the v1.11 chain-closing threshold) appears in three places:
+
+1. `SKILL.md:230-232` — dedicated subsection `### Threshold rationale (acknowledged uncalibrated starting values)` with the full rationale paragraph.
+2. `methodology.md:380` — rule-0-specific **Calibration note** paragraph restating the same discipline for the chain-of-rejections threshold.
+3. `methodology.md:591` — a short restatement inside the Patch-chain detection section, cross-referencing SKILL.md but also restating the discipline.
+
+The three mentions state the same rule in different axis-specific framings. Same pattern as the Phase B/C/D consolidations: pick an authoritative source, keep the rule-at-site default-rule statement at each operational location, cross-reference for the rationale.
+
+**Candidate authoritative source:** `methodology.md` — methodology is where rules-and-their-disciplines live. Consolidating to a single "Threshold discipline" paragraph in methodology (possibly in Calibration rules near the Hard cap discussion) and cross-referencing from SKILL.md + the other methodology mentions.
+
+**Why this item was deferred:** Surfaced in the original 2026-04-20 audit (item 7 of 8 findings) but was not formalized in Phases A–E because it ranked the smallest in the audit's initial char-savings estimate (~5–10 lines of consolidation). Post-ship retrospective confirmed it is still a legitimate duplicate worth cleaning up.
+
+**Effort:** small. 15–20 minutes.
+**Risk:** very low. Surgical delete-and-cross-reference, same template as Phases B/C/E.
+**Semver:** refactor — no version bump, no behavioral change.
+**Dependency:** none (F is independent of A–E; ships whenever triggered).
+
+**Trigger for shipping:**
+- Pickable anytime as a small cleanup item.
+- OR bundled opportunistically if another commit touches any of the three threshold-rationale sites.
+
+---
+
+## Item G — Prose compression pass (caveman-inspired) ⏳ UNSTARTED (demand-gated)
+
+**Goal:** Compress the explanatory prose paragraphs in `methodology.md` (primarily) without touching rule text, decision trees, enum definitions, schema shape, examples, or code. The target is prose-only passages — "Why this field exists", "Rationale", "Interaction with ...", saha-test retrospective narratives, multi-sentence rule justifications — where paragraphs could be tightened without losing sub-clauses or nuance. Inspired by the `caveman` Claude Code skill's `/caveman:compress` tool, which compresses memory files by rewriting prose into terser form while leaving code/URLs/paths/headings/dates untouched (README: "~46% of input tokens").
+
+**What this is NOT:**
+- NOT find-and-replace automation. Every paragraph gets a manual pass and a per-paragraph judgment on tightness vs. preserved nuance.
+- NOT reducing rule content. If a paragraph defines a rule, the rule's semantic content is preserved exactly.
+- NOT reducing calibration-sensitive language. "Load-bearing" words (severity modifiers, precedence gates, default values, conditional-required triggers) stay.
+- NOT structural (no new sections, no reorganization). Purely prose-level tightening.
+
+**Scope to consider (but not exhaustive):**
+- `methodology.md` §Operating stance, §Attack surface, §Review method subsection prose, §Severity definitions prose (not the bulleted definitions themselves), §Calibration rules rationale paragraphs, §Claim verification pass intro + per-step rationale, §Final check bullets that duplicate earlier content.
+- `SKILL.md` Step 1–8 instructional prose (but NOT the step procedures themselves — those are load-bearing for skill execution).
+
+**Why this item was deferred:** Mentioned in the initial 2026-04-20 caveman discussion as possible post-A-B follow-up pass but never formalized in Phases A–E because the structural duplication (A–E scope) was the bigger win and needed to land first. Prose compression on top of the already-consolidated structure could plausibly save another 15–25% of core load — but the per-paragraph judgment cost is high.
+
+**Effort:** large. 2–4 hours of focused editing with careful per-paragraph review. Should be done in a dedicated session with break-up.
+
+**Risk:** medium-high. Paraphrase drift is the primary failure mode — tightening a paragraph can silently drop a sub-clause that was load-bearing in an edge case. Every edit needs its own pre-commit review pass.
+
+**Discipline for shipping:**
+- One section at a time per commit. No batch shipping across sections.
+- Each commit's pre-commit review must apply devil-review's Claim verification pass to the diff itself — has any load-bearing claim been dropped or narrowed?
+- Preserve original paragraph in a footnote or sibling doc if any claim ambiguity surfaces.
+- Measured success criterion: tokens saved per section, PLUS a positive "read-back" test — re-read the compressed section cold and confirm every rule/constraint/nuance from the original is still inferable.
+
+**Semver:** refactor — no version bump per individual commit. A marker patch bump (similar to v1.19.1) may be warranted at the end of a prose compression series.
+
+**Dependency:** A–E must be complete (they are). Structural dedup must land first so prose compression operates on the already-consolidated skeleton; otherwise prose that will be deleted structurally gets compressed first, wasting effort.
+
+**Trigger for shipping:**
+- Demand-gated: if core load re-emerges as a visible pain point (user reports, token-cost concerns, slow invocation).
+- OR user-initiated dedicated session — this is judgment-heavy enough to deserve intentional scheduling rather than opportunistic picking.
+- OR a `caveman`-family tool integration (e.g., the user installs `caveman-compress` and wants to run it on the devil-review skill files — which would then need pre-compression structural baseline to operate against).
+
+---
+
 ## Sequencing
+
+**Original A → B → C → D → E sequence is complete.** F and G are post-plan additions.
 
 A → B → C → D → E.
 
@@ -190,6 +254,8 @@ Rationale:
 - [x] **Phase C** (shipped 2026-04-20): chain-of-rejections override stated authoritatively once (in `methodology.md` §User rejection memory); `SKILL.md` substep 6 + `methodology.md` verdict derivation rule 0 bullet trimmed to compact procedural/structural statements with cross-references. Core load -0.3% (~150 tokens / invocation); the win is single-source-of-truth for future amendments, not per-invocation bytes.
 - [x] **Phase D** (shipped 2026-04-20): duplicate 5-bullet verdict-interaction list deleted from both axis sections; compact cross-references to `§Calibration rules → Verdict derivation` in place. Original spec's shared-pattern section was deemed over-engineering (duplicates already had an authoritative home); revised scope was surgical delete-and-cross-reference. Bundled Phase C `bias rule` cross-reference narrowing in the same commit per user-authorized bundling exception. Core load -0.8% (~400 tokens/invocation).
 - [x] **Phase E** (shipped 2026-04-20): backward-compat rationale consolidated to the authoritative Compatibility property in `methodology.md` §Calibration rules; default-rule statements kept at consumer sites (`output-schema.md` field rules + `methodology.md` axis sections) with cross-references to the authoritative rationale. Scope was narrower than original spec because the authoritative enumeration already existed — no new section needed. Core load -0.12% (~60 tokens / invocation).
+- [ ] **Phase F** (unstarted, demand-gated): threshold rationale ("uncalibrated starting value" discipline) consolidated to single authoritative source in `methodology.md` §Calibration rules; SKILL.md + other methodology mentions cross-reference. Effort ~15–20 min, risk very low.
+- [ ] **Phase G** (unstarted, demand-gated): caveman-inspired prose compression pass on `methodology.md` (and SKILL.md instructional prose) explanatory paragraphs — rule text/decision trees/schema shape untouched. Effort 2–4 hours, risk medium-high (paraphrase drift), one-section-per-commit discipline required.
 - [x] Core file (SKILL.md + methodology.md + output-schema.md) character load reduction measured at shipping time: pre-Phase-A baseline 216,116 chars → post-Phase-E 195,711 chars = **-9.4%** (~5,100 tokens/invocation). Original target was ≥15%, actual was -9.4%. Target-miss rationale: the highest-char-density duplication (schema history extraction, Phase A) had been correctly estimated (~16 KB), but the remaining duplicates (Phases B–E) turned out to be compact cross-referenceable rule statements rather than large prose restatements — so total consolidation ceiling was lower than initially estimated. The -9.4% is the honest measurement; the -15% target was aspirational rather than evidence-based. Line count is a secondary metric because rule paragraphs are long single lines; the token/character metric is what affects per-invocation cost.
 
 ---
@@ -206,4 +272,5 @@ Rationale:
 - 2026-04-20 — Post-Phase-D follow-up shipped as separate `fix(devil-review): harmonize cross-reference to Verdict derivation` commit. During Phase D's post-edit review, the `output-schema.md:369` pointer bullet (from Phase B) was noted as using a less-precise anchor form (`§Verdict derivation`) compared to Phase D's hierarchy-aware form (`§Calibration rules → Verdict derivation`). Fix was a single-word addition; not bundled with Phase D because output-schema.md was not in Phase D's file set (no-batch-shipping discipline). Three cross-references to Verdict derivation (output-schema.md pointer, methodology.md Scope Verdict interaction, methodology.md Reachability Verdict interaction) now all use the same anchor form.
 - 2026-04-20 — Phase E shipped. Scope narrowed on pre-edit design review (fourth consecutive phase with scope narrowing — B, C, D, E all had original specs that were broader than real duplication warranted): original plan proposed enumerating all default-to-X rules in a new consolidation target, but the authoritative enumeration already existed at `methodology.md:484-492` Compatibility property (established in earlier schema-bump commits). Revised scope: delete duplicate rationale sentences at five consumer sites, add cross-references to the existing authoritative target. Default rule statements ("absence → X") preserved at each site for reader utility; only the rationale ("This rule is what keeps v1.X payloads producing identical verdicts...") was removed. Core load -0.12% (~60 tokens/invocation) — smallest per-phase delta in the plan. The real win is single-source-of-truth for future amendments: any v1.15+ axis additions only need to extend the Compatibility property list, not restate the rationale at every consumer site. Plan complete. Cumulative A+B+C+D+E+harmonize-fix: core load 216,116 chars → 195,711 chars (-9.4%; ~5,100 tokens/invocation).
 - 2026-04-20 — Marker patch bump v1.19.0 → v1.19.1 landed as a dedicated commit to make the consolidation pass visible as a single version marker. No content change on top of Phase E — only the two manifests (`plugin.json` + `marketplace.json`) and this plan doc's status line. Justification under CLAUDE.md semver: the cumulative pass produced materially cleaner reference material (single authoritative source for each of 5 consolidation targets), and "clarifications ... to reference material" is a named patch-bump trigger. Individual phase commits stayed as `refactor()` per plan; this bump commit is the signing-off marker.
-- 2026-04-20 — Content consolidation plan complete. All five phases shipped in a single afternoon session (2026-04-20) as six commits (A, B, C, D, Phase-B-harmonize fix, E) plus the initial plan-doc commit. Session discipline surfaced two important meta-rules recorded as memory entries: (1) `feedback_review_before_commit.md` — present distinct review pass before every commit, wait for explicit OK; (2) bundling exception for tiny post-commit self-review findings in the same subsystem (Phase C's bias-rule fix bundled with Phase D). Pattern observation: all four consolidation phases (B, C, D, E) had original specs where the scope needed to be narrowed on pre-edit re-verification because earlier phases sometimes preempted later-phase targets or the authoritative consolidation home already existed elsewhere. Pre-edit re-verification is therefore a first-class phase discipline for consolidation plans, not a nice-to-have.
+- 2026-04-20 — Content consolidation plan A–E complete. All five phases shipped in a single afternoon session (2026-04-20) as six commits (A, B, C, D, Phase-B-harmonize fix, E) plus the initial plan-doc commit.
+- 2026-04-20 — Plan reopened post-v1.19.1 with Phase F and Phase G added as demand-gated items. User asked "baska bi calismalar daha yapacaktik sanki bu kadar miydi?" during post-ship retrospective; re-checking the original audit surfaced two items that were mentioned but not formalized in the A–E scope: (1) threshold rationale consolidation (audit item 7; deferred because smallest char-savings estimate; now Phase F), and (2) caveman-inspired prose compression (mentioned in the initial caveman discussion as possible post-dedup follow-up; deferred because structural dedup took priority; now Phase G). Also re-checked: audit items 6 (patch_chain_risk vs decision.patch_chain_detected) and 8 (v1.15.1 enum correction) turned out on closer inspection NOT to have real duplication post-Phases-A-E, so no new phases for those. Status line flipped from "Plan complete" to "A–E shipped; F–G demand-gated". This revision-log entry records the reopening and the rationale for adding F/G vs. dropping items 6/8. Session discipline surfaced two important meta-rules recorded as memory entries: (1) `feedback_review_before_commit.md` — present distinct review pass before every commit, wait for explicit OK; (2) bundling exception for tiny post-commit self-review findings in the same subsystem (Phase C's bias-rule fix bundled with Phase D). Pattern observation: all four consolidation phases (B, C, D, E) had original specs where the scope needed to be narrowed on pre-edit re-verification because earlier phases sometimes preempted later-phase targets or the authoritative consolidation home already existed elsewhere. Pre-edit re-verification is therefore a first-class phase discipline for consolidation plans, not a nice-to-have.
