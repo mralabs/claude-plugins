@@ -1,6 +1,6 @@
 # devil-review — Content Consolidation Plan
 
-**Status:** Phase A unstarted. Phases B–E unstarted.
+**Status:** Phase A shipped 2026-04-20 (refactor, no version bump). Phases B–E unstarted.
 **Plugin version at time of writing:** v1.19.0 (no bump planned — every phase is `refactor(devil-review)`, no new capability).
 
 **Scope:** Reduce core content bloat across `SKILL.md` + `methodology.md` + `output-schema.md` (pre-Phase-A baseline: 1495 markdown lines / ~216 KB loaded on every invocation — the character count is the load-relevant metric, line counts vary because version-history entries and rule paragraphs are long single lines) by eliminating structural duplication. No behavioral change — same rules, same verdicts, same schema; authoritative source consolidated and near-duplicates converted to cross-references.
@@ -11,7 +11,21 @@
 
 ---
 
-## Item A — Extract schema version history
+## Item A — Extract schema version history ✅ SHIPPED 2026-04-20 (refactor, no version bump)
+
+**Shipping notes:** Landed as `refactor(devil-review): extract schema version history to docs/`. Two new files and one edit:
+- `plugins/devil-review/docs/schema-history.md` — verbatim lift of the schema history block (v1.0 → v1.14 entries, the `Legacy-payload decision synthesis` indented block inside the v1.11 entry, and the v1.15.1 correction-note blockquote). `diff(1)` confirmed byte-identical version entries pre-edit vs. post-edit. Added a one-paragraph intro and a "Compatibility property across all bumps" summary so the document stands alone.
+- `plugins/devil-review/skills/devil-review/output-schema.md` — schema-history block replaced with a single pointer paragraph naming the specific content (version history, compatibility properties, pre-v1.11 synthesis map, v1.15.1 correction note) so readers know what lives at the other end of the link.
+- Cross-reference paths verified: `../../docs/schema-history.md` from `skills/devil-review/` resolves correctly; reverse direction (`../skills/devil-review/output-schema.md` from `docs/`) resolves correctly.
+
+**Measured impact:**
+- `output-schema.md`: 67,132 → 50,966 chars (**-24%** of that file).
+- Core load total: ~216 KB → ~200 KB (**-7.5%** of per-invocation load; ~4k tokens saved).
+- Markdown-line counts: `output-schema.md` 429 → 403 lines (the 26-line delta understates the impact because schema history entries were long single-line paragraphs; the character delta is the load-relevant number).
+
+**No behavioral change:** rule text for the current schema (v1.14) unchanged; fixtures unaffected; no plugin version bump.
+
+### Item A — Original spec (for reference)
 
 **Goal:** Move `output-schema.md` schema history section (25 markdown lines / ~16 KB — the entries are long single-line paragraphs, so markdown-line count understates the content weight; ~16 KB ≈ ~4k tokens of per-invocation load, v1.0 → v1.14 entries plus the embedded `Legacy-payload decision synthesis` block and the v1.15.1 correction note) to a new `docs/schema-history.md`. Replace in-file with a single pointer line to the new document.
 
@@ -97,7 +111,7 @@ Rationale:
 
 ## Success criteria
 
-- [ ] **Phase A**: `docs/schema-history.md` created; `output-schema.md` has a single-line pointer in place of the history block; no behavioral change.
+- [x] **Phase A** (shipped 2026-04-20): `docs/schema-history.md` created; `output-schema.md` has a single-line pointer in place of the history block; no behavioral change. Core load -7.5% (~4k tokens / invocation).
 - [ ] **Phase B**: verdict derivation stated once (in `methodology.md`); `SKILL.md` + `output-schema.md` cross-reference it.
 - [ ] **Phase C**: chain-of-rejections override stated once (in `methodology.md`); other mentions cross-reference.
 - [ ] **Phase D**: classification axes pattern defined once; scope and reachability sections are thin instantiations.
@@ -110,3 +124,4 @@ Rationale:
 
 - 2026-04-20 — plan created. Session audit identified structural duplication across SKILL.md + methodology.md + output-schema.md (verdict derivation repeated in 3 places, chain-of-rejections override in 4+, scope/reachability classification pattern in 2); sequencing decided A → B → C → D → E based on risk (A lowest, D highest) and dependency (B/C/D/E benefit from A's clean-up, E synthesizes across all prior).
 - 2026-04-20 — plan-doc self-review pre-commit (applying devil-review discipline to its own diff): initial draft used approximate markdown-line counts from session audit ("~1391 lines", "~340 lines", "~210 lines") that conflated visual/wrapped lines with markdown lines. Corrected to authoritative baseline captured from `wc -c` after Phase A file changes (core load 216 KB pre-Phase-A / 200 KB post-Phase-A) and kept markdown-line counts as secondary metrics with explanatory context. Claim-verification drop logged: the phrase "~340 lines of structural duplication" in the original origin paragraph was replaced with "~20-25% of core load" because the line-count basis was unverifiable; the character-based estimate is defensible from the per-phase impact tallies.
+- 2026-04-20 — Phase A shipped. `schema-history.md` created (byte-identical version entries vs. pre-edit output-schema.md, `diff(1)` verified); `output-schema.md` schema-history block replaced with pointer; character load on `output-schema.md` -24%, core total -7.5%. Zero behavioral change; no version bump. Phase B becomes the next shipping target.
