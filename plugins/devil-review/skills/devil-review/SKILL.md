@@ -206,14 +206,13 @@ If the reviewer cannot articulate concrete new evidence in one sentence, the pat
 
 #### Substep 6 — Chain-of-rejections verdict override
 
-Count the number of findings emitted with `previously_rejected` populated on the current run (i.e., the re-raised rejections). Call this the *resurface count*. When the resurface count is **≥ 2**, the reviewer is persistently surfacing user-dismissed findings; this is an automation signal to stop iterating, not to raise severity. Override verdict derivation as follows:
+Compute the *resurface count*: number of findings emitted with `previously_rejected` populated on the current run. When the resurface count reaches **≥ 2**, apply the override per `methodology.md` §User rejection memory → Chain-of-rejections override:
 
-- Set `verdict: approve` and `decision.action: ship` regardless of what the standard rules would produce.
-- Set `decision.rationale` to `"chain-of-rejections pattern — <resurface count> previously-rejected findings re-raised; stop iterating, ship as-is"` or equivalent.
-- The re-raised findings still emit in `findings` for transparency — the override is on verdict/action, not on the findings list.
-- This override fires **before** rules 1-4 in the standard verdict precedence. See the "Chain-of-rejections override" clause in `methodology.md`'s Verdict derivation section.
+- `verdict: approve` and `decision.action: ship` — regardless of rules 1-4.
+- `decision.rationale` names the resurface count and the chain-of-rejections pattern (exact text format specified in the methodology section).
+- Re-raised findings still emit in `findings` — the override flips verdict/action, not the findings list.
 
-The threshold `≥ 2` is an uncalibrated starting value per the "threshold rationale" pattern used elsewhere. Real usage may surface the need to revise it in a v1.19.x patch; the rule is the discipline, the number is the starting guess.
+Rules 1-4 do not evaluate when this override fires. Rationale, bias rule, and threshold-calibration note: see the authoritative section.
 
 #### Substep 7 — Observability requirement
 

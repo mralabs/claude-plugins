@@ -1,6 +1,6 @@
 # devil-review — Content Consolidation Plan
 
-**Status:** Phases A and B shipped 2026-04-20 (refactor, no version bump). Phases C–E unstarted.
+**Status:** Phases A, B, C shipped 2026-04-20 (refactor, no version bump). Phases D–E unstarted.
 **Plugin version at time of writing:** v1.19.0 (no bump planned — every phase is `refactor(devil-review)`, no new capability).
 
 **Scope:** Reduce core content bloat across `SKILL.md` + `methodology.md` + `output-schema.md` (pre-Phase-A baseline: 1495 markdown lines / ~216 KB loaded on every invocation — the character count is the load-relevant metric, line counts vary because version-history entries and rule paragraphs are long single lines) by eliminating structural duplication. No behavioral change — same rules, same verdicts, same schema; authoritative source consolidated and near-duplicates converted to cross-references.
@@ -74,7 +74,21 @@
 
 ---
 
-## Item C — Consolidate chain-of-rejections override
+## Item C — Consolidate chain-of-rejections override ✅ SHIPPED 2026-04-20 (refactor, no version bump)
+
+**Shipping notes:** Landed as `refactor(devil-review): consolidate chain-of-rejections override to methodology.md`. Two-file edit. Scope narrower than the initial draft because Phase B's verdict-consistency consolidation already removed the output-schema.md duplicate of rule 0 as a side effect (the 6-bullet block that Phase B replaced included the rule 0 bullet). The actual remaining duplication was:
+- `SKILL.md` Step 3b substep 6 "Chain-of-rejections verdict override" — ~11 lines of rule restatement (body, rationale prose, threshold-calibration note) followed by a cross-reference line. Kept the procedural skill-execution content (compute resurface count, apply override, emit `decision.rationale`, re-raised findings still emit in `findings`, rules 1-4 do not evaluate) and deleted the rationale/calibration prose, which lived authoritatively in `methodology.md` §User rejection memory already. Final substep: ~7 lines.
+- `methodology.md` Verdict derivation rule 0 bullet (line 493) — a ~4-sentence restatement of the rule, despite that the same file contained the authoritative rule in §User rejection memory two hundred lines earlier. Compressed to a single-sentence rule statement (trigger + outcome + non-evaluation of rules 1-4) with an explicit same-file cross-reference. Rule 0 still participates in the 5-rule precedence list with enough detail to scan, and readers who need the detail land one anchor click away.
+
+**Measured impact:**
+- `SKILL.md`: 45,385 → 44,918 chars (**-1.0%** of file; -467 chars).
+- `methodology.md`: 103,599 → 103,475 chars (**-0.1%** of file; -124 chars).
+- Core load total: ~198 KB → ~197.6 KB (**-0.3%** of core load; ~150 tokens/invocation).
+- Savings are small because the duplicate rule 0 statements were compact; the win is deduplication of future amendments (single authoritative source for rule 0), not per-invocation bytes.
+
+**Claim-verification correction rolled into the shipping notes:** Phase C's original spec claimed "4+ places" including two output-schema.md locations ("verdict consistency rule 0" AND "chain-of-rejections callout (separate bullet)"). Re-reading post-Phase-B: both were in the same 6-bullet block Phase B consolidated; only one output-schema.md duplicate ever existed, and Phase B eliminated it. Phase C's real targets were two: SKILL.md substep 6 + methodology.md verdict derivation rule 0 bullet. Noted for auditability; the shipping reflected the corrected scope.
+
+### Item C — Original spec (for reference)
 
 **Goal:** Verdict rule 0 (chain-of-rejections override) appears in 4+ places: `SKILL.md` Step 3b substep 6, `output-schema.md` verdict consistency rule 0, `output-schema.md` chain-of-rejections callout (separate bullet), `methodology.md` "User rejection memory" section, `methodology.md` verdict derivation rule 0. Consolidate to `methodology.md` "User rejection memory"; other places cross-reference.
 
@@ -127,7 +141,7 @@ Rationale:
 
 - [x] **Phase A** (shipped 2026-04-20): `docs/schema-history.md` created; `output-schema.md` has a single-line pointer in place of the history block; no behavioral change. Core load -7.5% (~4k tokens / invocation).
 - [x] **Phase B** (shipped 2026-04-20): verdict derivation stated once (in `methodology.md`); `output-schema.md` cross-references it via a pointer bullet that also names the consumer-validation obligation. `SKILL.md` already used cross-references pre-Phase-B; no change needed there. Core load -0.9% (~450 tokens / invocation).
-- [ ] **Phase C**: chain-of-rejections override stated once (in `methodology.md`); other mentions cross-reference.
+- [x] **Phase C** (shipped 2026-04-20): chain-of-rejections override stated authoritatively once (in `methodology.md` §User rejection memory); `SKILL.md` substep 6 + `methodology.md` verdict derivation rule 0 bullet trimmed to compact procedural/structural statements with cross-references. Core load -0.3% (~150 tokens / invocation); the win is single-source-of-truth for future amendments, not per-invocation bytes.
 - [ ] **Phase D**: classification axes pattern defined once; scope and reachability sections are thin instantiations.
 - [ ] **Phase E**: backward-compat default-to-X rules enumerated in one section.
 - [ ] Core file (SKILL.md + methodology.md + output-schema.md) character load reduced by ≥15% from pre-Phase-A baseline (~216 KB → ≤ ~184 KB). Line count is a secondary metric because rule paragraphs are long single lines; the token/character metric is what affects per-invocation cost.
@@ -140,3 +154,4 @@ Rationale:
 - 2026-04-20 — plan-doc self-review pre-commit (applying devil-review discipline to its own diff): initial draft used approximate markdown-line counts from session audit ("~1391 lines", "~340 lines", "~210 lines") that conflated visual/wrapped lines with markdown lines. Corrected to authoritative baseline captured from `wc -c` after Phase A file changes (core load 216 KB pre-Phase-A / 200 KB post-Phase-A) and kept markdown-line counts as secondary metrics with explanatory context. Claim-verification drop logged: the phrase "~340 lines of structural duplication" in the original origin paragraph was replaced with "~20-25% of core load" because the line-count basis was unverifiable; the character-based estimate is defensible from the per-phase impact tallies.
 - 2026-04-20 — Phase A shipped. `schema-history.md` created (byte-identical version entries vs. pre-edit output-schema.md, `diff(1)` verified); `output-schema.md` schema-history block replaced with pointer; character load on `output-schema.md` -24%, core total -7.5%. Zero behavioral change; no version bump. Phase B becomes the next shipping target.
 - 2026-04-20 — Phase B shipped. `output-schema.md` "Verdict consistency" 6-bullet block replaced with a single pointer bullet to `methodology.md` §Verdict derivation. Claim-verification correction surfaced: original spec claimed SKILL.md Step 6 checklist had a third restatement, but on re-reading SKILL.md's verdict-related text is cross-references (not rule text) — only two files had real duplication. Shipping reflected the corrected scope; spec note preserved in the Item B section's "Original spec (for reference)" subsection. Core load -0.9% (~450 tokens/invocation). Methodology.md untouched (already authoritative). Phase C (chain-of-rejections override consolidation) becomes the next shipping target.
+- 2026-04-20 — Phase C shipped. `SKILL.md` Step 3b substep 6 trimmed (~11 lines → ~7 lines, rationale/calibration prose removed); `methodology.md` verdict derivation rule 0 bullet compressed from ~4-sentence restatement to a single-sentence trigger-and-outcome statement with a same-file cross-reference to §User rejection memory. Second claim-verification correction: Phase C's original spec listed two output-schema.md targets ("verdict consistency rule 0" + "chain-of-rejections callout"), but Phase B's 6-bullet consolidation had already removed both — they lived in the same block. Real Phase C targets were two files (SKILL.md + methodology.md), not four places. Note preserved in Item C's "Original spec (for reference)" subsection for auditability. Core load -0.3% (~150 tokens/invocation); per-byte win is modest, the single-source-of-truth win is the real outcome. Phase D (scope/reachability parallel refactor — highest-risk phase) becomes the next shipping target.
