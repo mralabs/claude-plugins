@@ -288,7 +288,7 @@ Every finding carries a `scope` tag that says where the problem lives relative t
 
 **Hard cap interaction.** All three scopes count toward the findings hard cap (3 under 500 lines / 5 under 1500 / 3 per split group). Without this rule, a reviewer could pad with `pre-existing` findings to drown out a single `in-diff` finding. The cap forces prioritization across scopes: if you have room for 3 findings and one is a critical in-diff bug, the other two slots should usually go to the next two highest-priority in-diff findings, not to pre-existing observations — unless a pre-existing finding is itself severe enough to warrant the slot.
 
-**Backward compatibility.** Findings without a `scope` field (replay of pre-v1.10 snapshots) are treated as `in-diff` by default. This preserves verdict calculations on legacy payloads identically — v1.9 payloads run through v1.10 rules produce the same verdicts.
+**Backward compatibility.** Findings without a `scope` field (pre-v1.10 snapshots) are treated as `in-diff` by default. See §Calibration rules → Compatibility property (same file, below) for the replay invariants.
 
 **Anti-pattern to avoid.** Using `future-work` as a way to avoid hard calls. "The diff has a subtle correctness issue but I'm marking it `future-work` so the review approves" is a calibration failure — if the diff is broken today, the scope is `in-diff`, severity is real, and the verdict is `block` or `needs-attention`. `future-work` requires a **concrete next-step that the diff does not need**, not a vague "consider improving this later".
 
@@ -312,7 +312,7 @@ Every finding carries a `reachability` tag orthogonal to `severity`, `confidence
 
 **Bias rule.** When uncertain, classify as `hypothetical` rather than `reachable`. Promoting to `requires-specific-config` requires naming the specific config in the body; promoting to `reachable` requires naming a concrete path. "It probably fires somewhere" does not clear the bar for either — it is the canonical `hypothetical` finding.
 
-**Default classification.** `reachable` is the default for payloads that lack the field (pre-v1.13 snapshots replayed under v1.13 rules). This preserves pre-v1.13 verdict calculations identically: before v1.13 every finding drove verdict escalation regardless of reachability, and the default-to-reachable rule keeps the same outcome when replaying legacy payloads through v1.13 rules.
+**Default classification.** `reachable` is the default for payloads that lack the field (pre-v1.13 snapshots). See §Calibration rules → Compatibility property (same file, below) for the replay invariants.
 
 **Verdict interaction.** Only `reachability: reachable` findings drive verdict escalation. The full verdict rules — rules 0–4 filtered on `scope == "in-diff"` AND `reachability == "reachable"` — live in §Calibration rules → Verdict derivation. A review whose only findings are `hypothetical` or `requires-specific-config` lands at `verdict: approve` because the reachable failure surface is clean; the non-driving findings emit transparently for the author to consider.
 
