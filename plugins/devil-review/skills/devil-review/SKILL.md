@@ -212,7 +212,7 @@ Compute the *resurface count*: number of findings emitted with `previously_rejec
 - `decision.rationale` names the resurface count and the chain-of-rejections pattern (exact text format specified in the methodology section).
 - Re-raised findings still emit in `findings` — the override flips verdict/action, not the findings list.
 
-Rules 1-4 do not evaluate when this override fires. Rationale, bias rule, and threshold-calibration note: see the authoritative section.
+Rules 1-4 do not evaluate when this override fires. Rationale and threshold-calibration note: see the authoritative section.
 
 #### Substep 7 — Observability requirement
 
