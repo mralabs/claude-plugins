@@ -39,3 +39,6 @@ coverage/
 
 # rigo
 .rigo/board/
+
+# Eval run artifacts — regenerated per run, never committed
+evals/results/

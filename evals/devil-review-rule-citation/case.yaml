@@ -1,0 +1,50 @@
+schema_version: "1.1"
+name: devil-review-rule-citation
+description: >
+  SKILL.md Step 5.2b — glob the project's own rule files, and ground a finding
+  in one with a VERBATIM quote (the anti-hallucination gate). This is the
+  flagship v2 capability and it lives entirely in prose: no unit test can tell
+  whether a finding cited a real rule or invented a plausible one.
+
+  REGRESSION GUARD, not a value proof: /devil-review is
+  disable-model-invocation, so with the plugin off the command does not exist.
+  The rule text lives in the scaffold, never in the prompt.
+
+tags: [devil-review, prose-invariant, regression-guard]
+plugins: ["../../plugins/devil-review"]
+
+context:
+  scaffold_script: "./scaffold.sh"
+
+execution:
+  prompt: "/devil-review"
+  # This skill legitimately reads methodology.md, output-schema.md, domain
+  # checklists, and greps the repo. Starving it here would score
+  # error_max_turns, not a regression.
+  max_turns: 80
+  timeout_seconds: 900
+  allowed_tools: [Bash, Read, Glob, Grep, Skill, Task]
+
+runs: 3
+
+graders:
+  - type: regex
+    name: cites-the-project-rule-file
+    target: last_message
+    pattern: '\.claude/rules/no-silent-catch\.md'
+    match: contains
+
+  # The gate itself: the quote must appear literally. Either sentence of the
+  # two-sentence rule counts — the scaffold keeps the file short so this
+  # alternation is exhaustive.
+  - type: regex
+    name: quote-is-verbatim-from-the-rule-file
+    target: last_message
+    pattern: 'never acceptable, no matter how unlikely the error path looks|must either rethrow or report the error via'
+    match: contains
+
+expected_outcome: >
+  The swallowed error in saveOrder is reported as a finding whose rule_refs
+  cites .claude/rules/no-silent-catch.md with a quote lifted literally from that
+  file. A finding that names the bug but paraphrases or omits the rule fails —
+  paraphrase is the exact failure mode Step 5.2b forbids.

@@ -1,0 +1,51 @@
+schema_version: "1.1"
+name: devil-review-empty-diff-not-approve
+description: >
+  SKILL.md Step 3 "Empty diff handling" — an empty diff emits error `empty_diff`
+  with verdict null, and explicitly NOT `approve` ("an empty review is not an
+  approval"). Textbook silent rot: drop the sentence and the skill cheerfully
+  approves nothing, which reads identically to approving something.
+
+  REGRESSION GUARD, not a value proof: /devil-review is
+  disable-model-invocation, so with the plugin off the command does not exist.
+
+tags: [devil-review, prose-invariant, regression-guard]
+plugins: ["../../plugins/devil-review"]
+
+context:
+  scaffold_script: "./scaffold.sh"
+
+execution:
+  # Explicit scope so the target never depends on default-branch detection in a
+  # remote-less scaffold.
+  prompt: "/devil-review --scope working-tree"
+  max_turns: 20
+  timeout_seconds: 300
+  allowed_tools: [Bash, Read, Glob, Grep, Skill, Task]
+
+runs: 3
+
+graders:
+  - type: regex
+    name: emits-empty-diff-error
+    target: last_message
+    pattern: '"error"\s*:\s*"empty_diff"'
+    match: contains
+
+  - type: regex
+    name: verdict-is-null
+    target: last_message
+    pattern: '"verdict"\s*:\s*null'
+    match: contains
+
+  # The specific failure the prose forbids by name.
+  - type: regex
+    name: does-not-approve
+    target: last_message
+    pattern: '"verdict"\s*:\s*"approve"'
+    match: not_contains
+
+expected_outcome: >
+  The error output shape from output-schema.md: `"verdict": null` with
+  `"error": "empty_diff"`. Any `approve` verdict is the exact regression this
+  case exists to catch.
