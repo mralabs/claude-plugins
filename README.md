@@ -38,7 +38,7 @@ Adversarial code review that finds the subtle bugs, race conditions, and violate
 
 > *Fast conventional commits via Haiku delegation.*
 
-Delegates commit message generation to a dedicated Haiku subagent running in a forked context, so the main conversation stays clean and the token cost stays low. Enforces Angular 11 conventional commit types, respects repo-specific commit formats defined in `CLAUDE.md`, and refuses to commit files that look like secrets.
+Delegates commit message generation to a dedicated Haiku subagent running in a forked context, so the main conversation stays clean and the token cost stays low. Enforces the 11 Angular-convention commit types, respects repo-specific commit formats defined in `CLAUDE.md`, and refuses to commit files that look like secrets.
 
 ```bash
 /commit                    # long form
