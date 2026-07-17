@@ -139,13 +139,7 @@ Where `<N>` is `5` for working-tree and branch modes, `10` for PR mode (PRs accu
 
 ### Prior-relation classification (schema v1.11+)
 
-When Step 3b's `<status>` is `loaded`, the loaded prior review's findings must also be used for per-finding attribution and summary-level roll-up — see the "Prior-relation classification" and "Decision derivation" subsections in `methodology.md`. Specifically:
-
-1. **Per-finding classification.** On every current finding, emit `findings[].prior_relation` with `category` in `{carries-over, new-drift-from-fix, pre-existing-orthogonal}` (three values per the plugin v1.15.1 correction — `resolved` is not a finding-level value) and optional `prior_finding_ref` (prior finding title quoted verbatim, or `null` when no specific prior finding is referenced). See methodology.md for the three-category decision tree.
-2. **Summary roll-up.** Populate `trace_log.prior_review_summary` with per-category counts derived from (a) current findings' `prior_relation` categories and (b) reviewer's judgment about which prior findings are now resolved (not in current findings). Fields: `total_in_prior`, `resolved`, `still_open`, `new_drift_introduced`, `pre_existing_unrelated`.
-3. **Severity dampening.** For every finding with `prior_relation.category == "carries-over"`, apply the severity dampening rule from methodology.md "Severity dampening for carries-over findings" — hold severity at prior level when the invariant is still violated, or reclassify to `pre-existing-orthogonal` with a one-notch severity drop if the prior fix was unrelated.
-
-When Step 3b's `<status>` is `absent` or any `rejected-*` value, omit `prior_relation` on all findings and omit `trace_log.prior_review_summary` entirely. Both fields are meaningless without a loaded prior.
+When Step 3b's `<status>` is `loaded`, the loaded prior review's findings feed three **emit-time obligations**: per-finding `prior_relation` attribution (three categories per the plugin v1.15.1 correction — `resolved` is not a finding-level value), the `trace_log.prior_review_summary` roll-up, and severity dampening for `carries-over` findings. Rules live in the "Prior-relation classification" and "Severity dampening for carries-over findings" subsections of `methodology.md`; the Pre-emit checklist in `output-schema.md` enforces them at Step 7. When `<status>` is `absent` or any `rejected-*` value, omit `prior_relation` on all findings and omit `trace_log.prior_review_summary` entirely.
 
 ### Rejection memory load (schema v1.14+)
 
@@ -270,32 +264,23 @@ If `FOCUS_TEXT` parsed in Step 1 is non-empty:
 
 If `FOCUS_TEXT` is empty, set `focus` to `null` in the JSON and omit the markdown `Focus:` line.
 
-### Pre-output checklist
+### Pre-output checklist (hunt side)
 
-Do not start writing output until you have:
-- answered the ship-blocker question (the answer goes into the Trace Log — see `output-schema.md`)
+Do not proceed to Step 7 until you have:
+- answered the ship-blocker question (the answer is recorded in the Trace Log at emit)
 - traced consumers for every changed symbol
 - routed `FOCUS_TEXT` if present
+- run the **Claim verification pass** (five steps, including the step-5 evidence gate for cross-boundary external claims) on every candidate finding per `methodology.md`
 - applied the final_check to every candidate finding
 - dropped weak findings to fit the hard cap
-- classified every finding into one of the four `finding_type` values (`correctness`, `design_debt`, `best_practice_violation`, `architectural_smell`) — a finding without `finding_type` is a grounding failure per schema v1.6
-- populated `lift_considered` on every finding whose recommendation is a runtime guard, OR named a system boundary in the finding body that explains why a lift is not the right primitive — per the Lift hierarchy rule and the v1.10.1 guard-legitimacy condition in `output-schema.md`
-- populated `trace_log.patch_chain_risk` with a non-empty `theme_assessment` whenever any Step 3b signal fired, regardless of the final `detected` value — the reviewer's theme-vs-root judgment is auditable
-- emitted a `scenarios_considered` line `prior-review ingestion: <status>` on every non-error run — the auto-detect outcome (loaded, absent, or rejected with reason) must always be visible per the observability rule in Step 3b
-- run the **Claim verification pass** on every candidate finding per `methodology.md` and populated `trace_log.findings_dropped_in_verification` (empty array `[]` is valid when every finding survived unchanged — absence of the field means the pass was skipped and is a grounding failure). The pass is **five steps** as of schema v1.12 — step 5 is the evidence gate for cross-boundary external claims (third-party libraries including stdlib, OS runtime, protocols, shell semantics). Findings whose load-bearing claim references external behavior either carry `findings[].evidence_sources` with a specific `source` (docs URL, source file:line, runtime observation, spec identifier), or include `evidence: unverified — <reason>` in the body with severity and confidence both dropped one notch, or are dropped entirely with reason `unverified-external-claim`. `trace_log.external_claims_verified` (integer ≥0, counts verification actions not finding entries) is unconditionally required — `0` is valid when no external claims were made, absence is a grounding failure
-- populated `trace_log.project_rules_loaded` with every project rule file loaded in Step 5.2b (empty array `[]` is valid when no rule file matched; absence is a grounding failure). Findings that cite a rule must emit `findings[].rule_refs` with a verbatim `quote` from the cited file — paraphrased quotes are schema-invalid
-- classified every finding with a `scope` tag — `in-diff` (default), `pre-existing` (bug in code the diff did not touch), or `future-work` (suggestion, not a bug today). Only `in-diff` findings drive verdict escalation; `pre-existing`/`future-work` findings are informational. See the "Scope classification" section in `methodology.md`
-- classified every finding with a `reachability` tag — `reachable` (default; a concrete call path from an entry point can be named and is in the body), `requires-specific-config` (fires under a named config, flag, env var, or platform; the specific thing is named in the body), or `hypothetical` (bug inferred from types, schemas, or code-shape reasoning without a traced path). Only `reachable` findings drive verdict escalation; `hypothetical`/`requires-specific-config` findings are informational. Reachability is orthogonal to severity and confidence — do not collapse a hypothetical bug into low severity or low confidence; emit the honest severity and let the reachability tag do the calibration work. See the "Reachability classification" section in `methodology.md`
-- **if prior review loaded** — classified every finding's `prior_relation.category` (one of the three finding-level values: `carries-over | new-drift-from-fix | pre-existing-orthogonal`; `resolved` is `trace_log.prior_review_summary`-only), populated `trace_log.prior_review_summary` with per-category counts, and applied severity dampening to all `carries-over` findings. See the "Prior-relation classification" and "Severity dampening for carries-over findings" subsections in `methodology.md`. When no prior review was loaded, omit both fields entirely
-- emitted the top-level `decision` block (`action | patch_chain_detected | iteration_count | rationale`) on every non-error run — `decision` is the machine-readable automation signal that pairs with prose-facing `verdict`. See the "Decision derivation" subsection in `methodology.md`
-- loaded the rejection memory file per `rejection-memory.md` and populated `trace_log.rejections_loaded` (empty array `[]` is valid when no `rejections.json` exists for this session; absence of the field when the file exists is a grounding failure). If `--reject <CSV>` was passed in Step 1, applied the rejections to `rejections.json` before the load step so the subsequent review sees them. For each candidate finding whose hash matches a rejection, chose suppress-silently or re-raise-with-`previously_rejected` per the reviewer-gated rule — re-raise requires concrete new evidence articulated in one sentence. Emitted the `scenarios_considered` line `rejection memory: <loaded | absent | rejected-malformed-json>`. Applied the chain-of-rejections override when the resurface count reached ≥2 AND no re-raised finding was a reachable in-diff correctness finding at high/critical (severity carve-out) — `verdict: approve` and `decision.action: ship` with the chain-of-rejections rationale. See the "User rejection memory" section in `methodology.md`
-- verified every required field listed in `output-schema.md` JSON rules is present — this is the backstop for future schema additions; when a new required field lands in a later version, the checklist does not need a per-field bullet if this backstop bullet catches it
+
+The emit-side checklist — per-finding classification axes, conditional trace_log blocks, rejection memory Phase B, the `decision` block, observability lines, and the required-field backstop — lives in `output-schema.md` ("Pre-emit checklist") and is completed after loading that file in Step 7. Do not load `output-schema.md` before the hunt is done; keeping the output contract out of hunt context is deliberate.
 
 ---
 
 ## Step 7 — Emit output
 
-Read **`output-schema.md`** (sibling file in this skill directory) and produce output in **exactly** the format it specifies: markdown section followed by a JSON fence. Both parts are mandatory on every non-error run.
+Read **`output-schema.md`** (sibling file in this skill directory) — now, not earlier — complete its **Pre-emit checklist**, and produce output in **exactly** the format it specifies: markdown section followed by a JSON fence. Both parts are mandatory on every non-error run.
 
 The Trace Log is non-negotiable. If you reported findings without a populated trace log, you skipped the grounding step — go back, trace, and try again.
 

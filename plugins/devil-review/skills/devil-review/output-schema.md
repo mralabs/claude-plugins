@@ -2,6 +2,18 @@
 
 Return your review in **two parts**: a human-readable markdown section, followed by a machine-readable JSON fence. Both sections must be present on every non-error run. Downstream tools consume the JSON; the markdown is for the reviewer reading the result.
 
+## Pre-emit checklist
+
+This file loads at SKILL.md Step 7 — after the hunt. Complete these before writing output (the hunt-side checklist in SKILL.md Step 6 must already be done):
+
+- classify every finding on the axes — `finding_type`, `scope`, `reachability` — per their decision trees, and apply the LLM-compliance severity floor where it applies; when a prior review is loaded, add `prior_relation` on every finding, populate `trace_log.prior_review_summary`, and apply severity dampening to `carries-over` findings
+- populate the conditional trace_log blocks whose triggers fired: `patch_chain_risk` with a non-empty `theme_assessment` whenever any Step 3b signal fired (regardless of the final `detected` value), `acceptance_criteria_crosswalk` when a spec with structured ACs loaded
+- populate `lift_considered` on every finding whose recommendation is a runtime guard, OR name the system boundary in the finding body
+- run rejection memory **Phase B** per `rejection-memory.md` (per-candidate hash match; suppress-silently vs re-raise-with-`previously_rejected`; chain-of-rejections override with the severity carve-out)
+- derive `verdict` (rules 0–4) and the `decision` block per the derivation rules in `methodology.md`
+- emit the observability `scenarios_considered` lines: `prior-review ingestion: <status>` and `rejection memory: <status>` on every non-error run, plus one `llm-field: <name> — <status>` line per consumed model-output field when the diff consumes model output
+- **backstop**: verify every required field in the JSON rules below is present — a new required field added in a future schema version is caught by this bullet without a per-field checklist entry
+
 ---
 
 ## Part 1 — Markdown section
