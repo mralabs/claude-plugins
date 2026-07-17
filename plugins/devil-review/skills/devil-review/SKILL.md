@@ -1,9 +1,9 @@
 ---
 name: devil-review
-description: "The devil is in the details — adversarial review that finds what's hiding in your diff"
+description: "The devil is in the details — adversarial review of working-tree, branch, or PR diffs that finds what's hiding in them"
 argument-hint: "[--scope auto|working-tree|branch|pr] [--base <ref>] [--pr <number>] [focus text]"
 disable-model-invocation: true
-allowed-tools: ["Read", "Write", "Glob", "Grep", "Bash(git:*)", "Bash(gh:*)"]
+allowed-tools: ["Read", "Write", "Glob", "Grep", "Bash(git:*)", "Bash(gh:*)", "Bash(sha256sum:*)", "Bash(shasum:*)", "Bash(date:*)"]
 context: fork
 ---
 
@@ -189,8 +189,6 @@ When `--reject` was NOT passed, substep 2 is a no-op.
    - If the file exists but fails to parse as JSON, lacks the `schema_version` field, or lacks a `rejections` array, treat as malformed: emit `trace_log.rejections_loaded: []` and add a `scenarios_considered` line `rejection memory: rejected-malformed-json` so the rejected load is visible. Do not attempt suppression against a malformed file — findings flow through as if no rejection memory existed. (This path cannot fire when substep 2 ran successfully — substep 2's error handling rejects a malformed file before reaching the load step.)
    - If the file parses and has `rejections: [...]` → populate `trace_log.rejections_loaded` with one `{hash, rejected_at}` entry per rejection in the file. Empty array is valid when the file is present but `rejections: []`.
 
-**TODO (sidecar schema_version validation gap, post-ship v1.19.0 tracked).** Both this reader substep and substep 2's writer step check that the sidecar's `schema_version` field is *present*, but neither checks that its *value* equals `"1.0"`. Today this is zero-risk (sidecar v1.0 is the only version that exists). When the sidecar format next evolves (e.g., adds a `suppress_until` field or changes hash normalization), add `if schema_version != "1.0"` → error here and in substep 2 step 4 before the evolution ships. A v1.0 reader silently accepting a v1.1 file would produce undefined behavior on whatever new semantics the v1.1 format encodes. Fix lives in the same commit as the sidecar evolution itself, not as a standalone patch.
-
 #### Substep 4 — Per-candidate-finding suppression check
 
 For each candidate finding produced by the review (after Claim verification, before emit), compute the normalized sha256 hash per substep 1 over the candidate's `file`, `lines`, `title`. Compare against the loaded rejection hashes.
@@ -251,7 +249,7 @@ The findings cap still applies per group (see `methodology.md`).
 
 ---
 
-## Step 5 — Load methodology and domain checklists
+## Step 5 — Load context and run mandatory traces
 
 **Read these files before reviewing the diff.** They are not optional. They define the review itself.
 
