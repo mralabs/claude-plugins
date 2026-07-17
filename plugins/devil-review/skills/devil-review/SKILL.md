@@ -3,7 +3,7 @@ name: devil-review
 description: "The devil is in the details — adversarial review of working-tree, branch, or PR diffs that finds what's hiding in them"
 argument-hint: "[--scope auto|working-tree|branch|pr] [--base <ref>] [--pr <number>] [focus text]"
 disable-model-invocation: true
-allowed-tools: ["Read", "Write", "Glob", "Grep", "Bash(git:*)", "Bash(gh:*)", "Bash(sha256sum:*)", "Bash(shasum:*)", "Bash(date:*)"]
+allowed-tools: ["Read", "Write", "Glob", "Grep", "WebFetch", "Bash(git:*)", "Bash(gh:*)", "Bash(sha256sum:*)", "Bash(shasum:*)", "Bash(date:*)"]
 context: fork
 ---
 
@@ -21,7 +21,7 @@ Parse the raw arguments:
 - `--scope <auto|working-tree|branch|pr>` — review target scope (default: `auto`)
 - `--base <ref>` — explicit base ref for branch diff
 - `--pr <number>` — GitHub PR number to review (implies `--scope pr`)
-- `--reject <CSV>` — record rejections of findings from the most recent prior snapshot before running this review. `<CSV>` is a comma-separated list of 1-based finding indices (e.g. `--reject 2,5,7`). Rejections are persisted to `.claude/devil-review/${CLAUDE_SESSION_ID}/rejections.json` and consulted on subsequent runs per `rejection-memory.md`.
+- `--reject <CSV>` — record rejections of findings from the prior snapshot **of the resolved review target** (the Step 8 target slug — the same snapshot Step 3b auto-detects; not simply the most recently written snapshot, which may belong to a different target) before running this review. `<CSV>` is a comma-separated list of 1-based finding indices (e.g. `--reject 2,5,7`). Rejections are persisted to `.claude/devil-review/${CLAUDE_SESSION_ID}/rejections.json` and consulted on subsequent runs per `rejection-memory.md`.
 - Everything else after flags → `FOCUS_TEXT`
 
 **No `--prior` flag.** Prior-review auto-detection is handled inside Step 3b — the skill always looks for a snapshot at `.claude/devil-review/${CLAUDE_SESSION_ID}/<target-slug>.md` (session-scoped, target-scoped — see Step 8 for slug rules) and uses it for patch-chain detection when present. Absent prior files produce a fresh review. Users do not control this via a flag; the behavior is zero-config. To force a fresh review on a target that already has a snapshot, delete the corresponding file.
@@ -137,17 +137,17 @@ Where `<N>` is `5` for working-tree and branch modes, `10` for PR mode (PRs accu
 
 **Observability requirement.** The skill **must always** emit a `scenarios_considered` line of the form `prior-review ingestion: <status>` on every non-error run, where `<status>` is exactly one of `loaded`, `absent` (file does not exist — fresh run), `rejected-no-schema-version`, or `rejected-malformed-json`. This line makes the auto-detect outcome visible; silent drops are not permitted, and neither is silently running without a prior-check signal.
 
-### Prior-relation classification (v1.11+)
+### Prior-relation classification (schema v1.11+)
 
 When Step 3b's `<status>` is `loaded`, the loaded prior review's findings must also be used for per-finding attribution and summary-level roll-up — see the "Prior-relation classification" and "Decision derivation" subsections in `methodology.md`. Specifically:
 
-1. **Per-finding classification.** On every current finding, emit `findings[].prior_relation` with `category` in `{carries-over, new-drift-from-fix, pre-existing-orthogonal}` (three values per v1.15.1 — `resolved` is not a finding-level value) and optional `prior_finding_ref` (prior finding title quoted verbatim, or `null` when no specific prior finding is referenced). See methodology.md for the three-category decision tree.
+1. **Per-finding classification.** On every current finding, emit `findings[].prior_relation` with `category` in `{carries-over, new-drift-from-fix, pre-existing-orthogonal}` (three values per the plugin v1.15.1 correction — `resolved` is not a finding-level value) and optional `prior_finding_ref` (prior finding title quoted verbatim, or `null` when no specific prior finding is referenced). See methodology.md for the three-category decision tree.
 2. **Summary roll-up.** Populate `trace_log.prior_review_summary` with per-category counts derived from (a) current findings' `prior_relation` categories and (b) reviewer's judgment about which prior findings are now resolved (not in current findings). Fields: `total_in_prior`, `resolved`, `still_open`, `new_drift_introduced`, `pre_existing_unrelated`.
 3. **Severity dampening.** For every finding with `prior_relation.category == "carries-over"`, apply the severity dampening rule from methodology.md "Severity dampening for carries-over findings" — hold severity at prior level when the invariant is still violated, or reclassify to `pre-existing-orthogonal` with a one-notch severity drop if the prior fix was unrelated.
 
 When Step 3b's `<status>` is `absent` or any `rejected-*` value, omit `prior_relation` on all findings and omit `trace_log.prior_review_summary` entirely. Both fields are meaningless without a loaded prior.
 
-### Rejection memory load (v1.14+)
+### Rejection memory load (schema v1.14+)
 
 Rejection memory lets the reviewer avoid silently re-raising findings the user has already dismissed via `--reject`. The full mechanics — hash normalization (authoritative), `--reject` recording, file load, suppression vs. re-raise, and the chain-of-rejections verdict override — live in **`rejection-memory.md`** (sibling file in this skill directory). Load it now.
 
@@ -288,7 +288,7 @@ Do not start writing output until you have:
 - classified every finding with a `reachability` tag — `reachable` (default; a concrete call path from an entry point can be named and is in the body), `requires-specific-config` (fires under a named config, flag, env var, or platform; the specific thing is named in the body), or `hypothetical` (bug inferred from types, schemas, or code-shape reasoning without a traced path). Only `reachable` findings drive verdict escalation; `hypothetical`/`requires-specific-config` findings are informational. Reachability is orthogonal to severity and confidence — do not collapse a hypothetical bug into low severity or low confidence; emit the honest severity and let the reachability tag do the calibration work. See the "Reachability classification" section in `methodology.md`
 - **if prior review loaded** — classified every finding's `prior_relation.category` (one of the three finding-level values: `carries-over | new-drift-from-fix | pre-existing-orthogonal`; `resolved` is `trace_log.prior_review_summary`-only), populated `trace_log.prior_review_summary` with per-category counts, and applied severity dampening to all `carries-over` findings. See the "Prior-relation classification" and "Severity dampening for carries-over findings" subsections in `methodology.md`. When no prior review was loaded, omit both fields entirely
 - emitted the top-level `decision` block (`action | patch_chain_detected | iteration_count | rationale`) on every non-error run — `decision` is the machine-readable automation signal that pairs with prose-facing `verdict`. See the "Decision derivation" subsection in `methodology.md`
-- loaded the rejection memory file per `rejection-memory.md` and populated `trace_log.rejections_loaded` (empty array `[]` is valid when no `rejections.json` exists for this session; absence of the field when the file exists is a grounding failure). If `--reject <CSV>` was passed in Step 1, applied the rejections to `rejections.json` before the load step so the subsequent review sees them. For each candidate finding whose hash matches a rejection, chose suppress-silently or re-raise-with-`previously_rejected` per the reviewer-gated rule — re-raise requires concrete new evidence articulated in one sentence. Emitted the `scenarios_considered` line `rejection memory: <loaded | absent | rejected-malformed-json>`. Applied the chain-of-rejections override when the resurface count reached ≥2 — `verdict: approve` and `decision.action: ship` with the chain-of-rejections rationale. See the "User rejection memory" section in `methodology.md`
+- loaded the rejection memory file per `rejection-memory.md` and populated `trace_log.rejections_loaded` (empty array `[]` is valid when no `rejections.json` exists for this session; absence of the field when the file exists is a grounding failure). If `--reject <CSV>` was passed in Step 1, applied the rejections to `rejections.json` before the load step so the subsequent review sees them. For each candidate finding whose hash matches a rejection, chose suppress-silently or re-raise-with-`previously_rejected` per the reviewer-gated rule — re-raise requires concrete new evidence articulated in one sentence. Emitted the `scenarios_considered` line `rejection memory: <loaded | absent | rejected-malformed-json>`. Applied the chain-of-rejections override when the resurface count reached ≥2 AND no re-raised finding was a reachable in-diff correctness finding at high/critical (severity carve-out) — `verdict: approve` and `decision.action: ship` with the chain-of-rejections rationale. See the "User rejection memory" section in `methodology.md`
 - verified every required field listed in `output-schema.md` JSON rules is present — this is the backstop for future schema additions; when a new required field lands in a later version, the checklist does not need a per-field bullet if this backstop bullet catches it
 
 ---
