@@ -7,6 +7,8 @@ Every release commit for a plugin must update both manifests together:
 
 These two values must always match. The `.githooks/pre-commit` hook blocks commits where they drift.
 
+Plugins living in external repos (github-source entries, e.g. `radar`) follow the same lockstep across two repos: the external repo's plugin.json and this catalog's `plugins[].version` must match. The pre-commit hook cross-checks github-source entries against the remote plugin.json (skipped with a warning when offline).
+
 The marketplace catalog's own `metadata.version` field is **independent** of individual plugin versions. Bump it only when the marketplace structure itself changes (new plugin added, plugin removed, structural refactor). A plugin bumping from v1.5 to v1.6 does NOT require touching `metadata.version`.
 
 Authoritative source: `CLAUDE.md` — "Version bumping discipline".

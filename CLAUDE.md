@@ -74,6 +74,14 @@ Checklist:
 
 The pre-commit hook will verify the two plugin manifests match before allowing the commit.
 
+### Plugins living in external repos
+
+A plugin can live in its own repository (e.g. `radar` → `mralabs/radar`) and still be published through this catalog:
+
+- The external repo contains only `.claude-plugin/plugin.json` — **never a marketplace.json**. One org, one catalog: a second marketplace claiming the `mralabs` name shadows this one and breaks installs (learned 2026-07-17 when radar's own marketplace.json hijacked the `mralabs` registration and `commit`/`devil-review` became uninstallable).
+- The catalog entry uses `"source": { "source": "github", "repo": "mralabs/<name>" }` instead of a local path.
+- Every release in the external repo bumps **both** its plugin.json and this catalog's `plugins[].version` — same lockstep rule as local plugins, across two repos. The pre-commit hook cross-checks github-source entries against the remote plugin.json (skipped with a warning when offline, so network failure never blocks unrelated commits).
+
 ## Model selection per skill
 
 Each skill's `SKILL.md` frontmatter can specify a `model` field that overrides the user's session model. The decision depends on the skill's quality vs. cost profile — pick one of three patterns when adding a new plugin:

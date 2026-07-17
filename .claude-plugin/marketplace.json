@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "mralabs Claude Code plugins",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "plugins": [
     {
@@ -25,6 +25,18 @@
         "name": "mralabs"
       },
       "source": "./plugins/commit"
+    },
+    {
+      "name": "radar",
+      "description": "Track competitors, upstream tools and dependencies — release radar for your repo",
+      "version": "0.2.2",
+      "author": {
+        "name": "mralabs"
+      },
+      "source": {
+        "source": "github",
+        "repo": "mralabs/radar"
+      }
     }
   ]
 }

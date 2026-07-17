@@ -45,6 +45,18 @@ Delegates commit message generation to a dedicated Haiku subagent running in a f
 
 [Full documentation](plugins/commit/)
 
+### radar
+
+> *Release radar for your repo.*
+
+Track competitors, upstream tools and dependencies — release tracking for changelogs you care about. Lives in its own repository; this marketplace catalogs it from there.
+
+```bash
+/plugin install radar@mralabs
+```
+
+[Full documentation](https://github.com/mralabs/radar)
+
 ## License
 
 MIT
