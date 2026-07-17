@@ -23,7 +23,7 @@ Both commands do exactly the same thing. Pick whichever your fingers prefer.
 3. **Probes diff size before pulling content** — `git status --short`, `git diff HEAD --stat`, `git log --oneline -10` in parallel; pulls the full diff only when it's small, targeted per-file diffs otherwise (lockfiles and generated files are classified from the stat alone, so a huge lockfile churn can't blow the fork's context either).
 4. **Respects partial staging** — if you already staged files deliberately, it commits only what's staged and leaves everything else alone.
 5. **Reads untracked files before committing them** — via `git diff --no-index /dev/null <file>`; nothing is committed sight-unseen.
-6. **Scans for secrets** — refuses files matching `.env`, `.env.*`, `credentials.json`, `*.pem`, `*.key`, and similar patterns, plus blatant embedded secrets in content it reads (private key blocks, AWS access keys).
+6. **Scans for secrets** — checks files against `.env`, `.env.*`, `credentials.json`, `*.pem`, `*.key`, and similar patterns, plus blatant embedded secrets in content it reads (private key blocks, AWS access keys). What blocks is a secret's path *into the commit*: an unrelated untracked match is excluded (and the exclusion reported in the summary line) while the rest of the change commits normally; a match you explicitly *staged* — or a secret embedded in a file's content — aborts the whole commit.
 7. **Classifies the change** — picks one of the 11 Angular-convention commit types from the diff content.
 8. **Decides on scope** — optional, based on how localized the change is and what existing `git log` entries use.
 9. **Writes the subject** — `type(scope?): imperative-lowercase-summary`, max 72 chars, no emoji, no attribution.
@@ -68,7 +68,7 @@ This means the same `/cc` command adapts per repo — no configuration needed.
 - Ask you questions before committing (decides entirely from the diff)
 - Split unrelated changes into multiple commits (always exactly one commit per invocation — split by staging deliberately and running `/cc` per batch)
 - Override your partial staging (staged changes present → only those get committed)
-- Commit files that look like secrets (aborts with a warning)
+- Commit files that look like secrets (untracked matches are excluded and reported; staged or content-embedded secrets abort the commit)
 - Commit untracked files without reading their content first
 - Use `git add -A` / `git add .` (stages files individually)
 - Use `--no-verify` or skip pre-commit hooks (surfaces hook errors)
@@ -152,9 +152,15 @@ Open the most recent `agent-*.jsonl` file and look for the model ID in the entri
 
 ## Secret detection is best-effort
 
-The subagent refuses to commit files matching known secret patterns — `.env` files, SSH private keys (`id_rsa`, `id_ed25519`), `credentials.json`, AWS credentials (`.aws/credentials`), `.npmrc`, Kubernetes configs (`kubeconfig`, `.kube/config`), Java keystores (`*.keystore`, `*.jks`, `*.p12`, `*.pfx`), Terraform state (`*.tfstate`), and similar.
+The subagent never commits files matching known secret patterns — `.env` files, SSH private keys (`id_rsa`, `id_ed25519`), `credentials.json`, AWS credentials (`.aws/credentials`), `.npmrc`, Kubernetes configs (`kubeconfig`, `.kube/config`), Java keystores (`*.keystore`, `*.jks`, `*.p12`, `*.pfx`), Terraform state (`*.tfstate`), and similar.
 
-Content the subagent reads (diffs, untracked files) also gets a blatant-secret scan: private key blocks, AWS access keys, high-entropy literals assigned to names like `api_key`/`token`.
+What a match does depends on how it would enter the commit (mirroring what tools like gitleaks and GitHub push protection block):
+
+- **Untracked/unstaged match, everything mode** — excluded; the rest of the logical change commits, and the summary line appends ` — excluded suspected secret: <file>` so the exclusion is never silent.
+- **Staged match, staged-only mode** — you staged it deliberately, so silently skipping it would alter your intent: the whole commit aborts with `refusing to commit suspected secret: <file>`.
+- **Secret embedded in the content of a file that belongs in the commit** — nothing to skip; the whole commit aborts.
+
+Content the subagent reads (diffs, untracked files) gets the blatant-secret scan: private key blocks, AWS access keys, high-entropy literals assigned to names like `api_key`/`token`.
 
 This is a safety net, not a guarantee. Cases the plugin will NOT catch:
 

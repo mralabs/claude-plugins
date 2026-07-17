@@ -47,7 +47,9 @@ If the invocation carried arguments (a hint like "fix the login bug"), use it as
 
 ## Step 3 — Safety: detect secrets
 
-Scan the list of files to be committed. Refuse the commit if any file matches a known secret pattern:
+Scan every file that could enter this commit against the known secret patterns below. What blocks the commit is a secret's **path into the commit**, not its mere presence in the working tree — an untracked `.env` sitting in a dev tree is the normal state of most machines, and refusing all work over it would train users to bypass the check.
+
+Known secret patterns:
 
 - `.env`, `.env.*` (but allow `.env.example`, `.env.template`, `.env.sample` — these are templates meant to be committed)
 - `credentials.json`, `credentials.yml`, `credentials.yaml`
@@ -59,9 +61,11 @@ Scan the list of files to be committed. Refuse the commit if any file matches a 
 - `kubeconfig`, `.kube/config`
 - `*.tfstate`, `*.tfstate.backup` (Terraform state can contain secrets)
 
-On match, output `refusing to commit suspected secret: <file>` and stop. Do not stage or commit anything.
+On match, decide by user intent:
 
-Also scan the CONTENT you read in Step 2 (diffs, untracked file reads). Refuse if it contains an obvious embedded secret: a private key block (`-----BEGIN ... PRIVATE KEY-----`), an AWS access key (`AKIA` followed by 16 uppercase alphanumerics), or a long high-entropy literal assigned to a name like `api_key` / `token` / `secret` / `password`.
+- **Unstaged or untracked match (everything mode):** exclude the file, commit the rest of the logical change, and report the exclusion in the Step 9 summary line. Never stage it.
+- **Staged match (staged-only mode):** the user explicitly staged it. Refuse the ENTIRE commit: output `refusing to commit suspected secret: <file>` and stop. Do NOT unstage the file (`git restore --staged` / `git reset` are forbidden here), do NOT commit the remaining staged files without it — either move silently alters what the user chose to commit. Resolving the conflict between "user staged it" and "it looks like a secret" is the user's call, not yours.
+- **Embedded secret in content:** if the CONTENT you read in Step 2 (diffs, untracked file reads) of a file that belongs in this commit contains an obvious embedded secret — a private key block (`-----BEGIN ... PRIVATE KEY-----`), an AWS access key (`AKIA` followed by 16 uppercase alphanumerics), or a long high-entropy literal assigned to a name like `api_key` / `token` / `secret` / `password` — there is no separate file to exclude; output `refusing to commit suspected secret: <file>` and stop.
 
 This is best-effort. Filename patterns catch common cases; the content scan catches only blatant ones — it will not catch every secret hidden in config files or repo-specific conventions (a `vault/` directory, custom secret stores). If unsure, err on the side of refusing.
 
@@ -161,6 +165,8 @@ Take the short hash from the `git commit` output (or run `git rev-parse --short 
 
 Example: `a1b2c3d feat(auth): add OAuth callback handler`
 
+If Step 3 excluded any suspected secret file, append exactly ` — excluded suspected secret: <file>` (repeat per file) to that line so the exclusion is never silent. Example: `a1b2c3d feat(auth): add OAuth callback handler — excluded suspected secret: .env`
+
 If the commit has a body, the caller does not need to see it. Do NOT narrate, do NOT explain, do NOT ask questions. One line.
 
 ## Absolute constraints
@@ -171,4 +177,5 @@ If the commit has a body, the caller does not need to see it. Do NOT narrate, do
 - Never include attribution, emoji, or "Generated with Claude" footers in commit messages.
 - Never use `git add -A` / `git add .` / `--no-verify` / `--amend`.
 - Never commit files matching secret patterns.
+- Never unstage anything the user staged. A staged secret aborts the whole commit; it is never quietly dropped from the index.
 - If a repo CLAUDE.md specifies a format, follow it — don't impose Angular defaults on top of it.
