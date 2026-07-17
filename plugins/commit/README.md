@@ -20,16 +20,20 @@ Both commands do exactly the same thing. Pick whichever your fingers prefer.
 
 1. **Delegates to a forked Haiku subagent** — the skill runs `context: fork` into the `commit-writer` subagent (`model: haiku`, `tools: Bash`). The fork has its own context window, so the full `git diff HEAD` stays out of your main conversation.
 2. **Checks for repo-specific commit conventions** — reads any `CLAUDE.md` loaded into context for a "Commit message format" section. Repo rules override the Angular defaults (see below).
-3. **Gathers diff context** — `git status --short`, `git diff HEAD`, `git log --oneline -10`, `git branch --show-current` in parallel.
-4. **Scans for secrets** — refuses to commit files matching `.env`, `.env.*`, `credentials.json`, `*.pem`, `*.key`, and similar patterns.
-5. **Classifies the change** — picks one of the Angular 11 conventional commit types from the diff content.
-6. **Decides on scope** — optional, based on how localized the change is and what existing `git log` entries use.
-7. **Writes the subject** — `type(scope?): imperative-lowercase-summary`, max 72 chars, no emoji, no attribution.
-8. **Stages files individually** — `git add <file>` per file, never `git add -A` or `git add .`.
-9. **Commits via HEREDOC** — multi-line body-safe, hooks honored (never `--no-verify`, never `--amend`).
-10. **Returns a one-line summary** — `<short-hash> <type>(<scope>): <subject>` to the main conversation.
+3. **Probes diff size before pulling content** — `git status --short`, `git diff HEAD --stat`, `git log --oneline -10` in parallel; pulls the full diff only when it's small, targeted per-file diffs otherwise (lockfiles and generated files are classified from the stat alone, so a huge lockfile churn can't blow the fork's context either).
+4. **Respects partial staging** — if you already staged files deliberately, it commits only what's staged and leaves everything else alone.
+5. **Reads untracked files before committing them** — via `git diff --no-index /dev/null <file>`; nothing is committed sight-unseen.
+6. **Scans for secrets** — refuses files matching `.env`, `.env.*`, `credentials.json`, `*.pem`, `*.key`, and similar patterns, plus blatant embedded secrets in content it reads (private key blocks, AWS access keys).
+7. **Classifies the change** — picks one of the 11 Angular-convention commit types from the diff content.
+8. **Decides on scope** — optional, based on how localized the change is and what existing `git log` entries use.
+9. **Writes the subject** — `type(scope?): imperative-lowercase-summary`, max 72 chars, no emoji, no attribution.
+10. **Stages files individually** — `git add <file>` per file, never `git add -A` or `git add .`.
+11. **Commits via HEREDOC** — multi-line body-safe, hooks honored (never `--no-verify`, never `--amend`).
+12. **Returns a one-line summary** — `<short-hash> <type>(<scope>): <subject>` to the main conversation.
 
-## Conventional commit types (Angular 11)
+The `/cc fix the login bug` hint form feeds the hint to the subagent as intent context — it shapes classification and wording, but if it conflicts with what the diff shows, the diff wins.
+
+## Conventional commit types (Angular convention — 11 types)
 
 | Type | Use when |
 |---|---|
@@ -62,7 +66,10 @@ This means the same `/cc` command adapts per repo — no configuration needed.
 ## What it does NOT do
 
 - Ask you questions before committing (decides entirely from the diff)
+- Split unrelated changes into multiple commits (always exactly one commit per invocation — split by staging deliberately and running `/cc` per batch)
+- Override your partial staging (staged changes present → only those get committed)
 - Commit files that look like secrets (aborts with a warning)
+- Commit untracked files without reading their content first
 - Use `git add -A` / `git add .` (stages files individually)
 - Use `--no-verify` or skip pre-commit hooks (surfaces hook errors)
 - Use `--amend` (always creates new commits)
@@ -147,9 +154,11 @@ Open the most recent `agent-*.jsonl` file and look for the model ID in the entri
 
 The subagent refuses to commit files matching known secret patterns — `.env` files, SSH private keys (`id_rsa`, `id_ed25519`), `credentials.json`, AWS credentials (`.aws/credentials`), `.npmrc`, Kubernetes configs (`kubeconfig`, `.kube/config`), Java keystores (`*.keystore`, `*.jks`, `*.p12`, `*.pfx`), Terraform state (`*.tfstate`), and similar.
 
+Content the subagent reads (diffs, untracked files) also gets a blatant-secret scan: private key blocks, AWS access keys, high-entropy literals assigned to names like `api_key`/`token`.
+
 This is a safety net, not a guarantee. Cases the plugin will NOT catch:
 
-- Secrets embedded inside otherwise-harmless files (API keys hardcoded in `src/config.ts`, tokens in YAML config files)
+- Subtle secrets embedded in otherwise-harmless files (an unlabeled token in a YAML config, keys in parts of a large diff it only saw as `--stat`)
 - Uncommon file names the pattern list doesn't cover
 - Repo-specific conventions (a `vault/` directory, custom secret stores, sealed-secret files)
 
@@ -161,7 +170,7 @@ This is a safety net, not a guarantee. Cases the plugin will NOT catch:
 |---|---|---|
 | Model | Main conversation (Opus/Sonnet) | Haiku (fixed) |
 | Context isolation | None — diff flows into main window | `context: fork`, isolated |
-| Format enforcement | "Match repo style" (permissive) | Angular 11 types (strict) |
+| Format enforcement | "Match repo style" (permissive) | 11 Angular-convention types (strict) |
 | Secrets detection | No | Yes |
 | Repo CLAUDE.md format override | No | Yes |
 | Auto-invocation by Claude | Possible | Disabled (`disable-model-invocation: true`) |

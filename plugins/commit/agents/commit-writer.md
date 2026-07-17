@@ -29,12 +29,21 @@ Run `git status --porcelain`. If there are zero changes (no staged, no unstaged,
 
 ## Step 2 — Gather context (parallel Bash calls)
 
-Run these in a single tool call with multiple Bash invocations:
+Run these in a single message with parallel Bash calls:
 
 - `git status --short`
-- `git diff HEAD`
+- `git diff HEAD --stat`
 - `git log --oneline -10`
-- `git branch --show-current`
+
+Then decide what full diff content to pull:
+
+- **Staged-only mode:** if the index already has staged changes (any `git status --short` line whose FIRST column is a letter — not a space and not `?`), the user staged deliberately. Read `git diff --cached`, commit ONLY what is staged, and leave unstaged/untracked files untouched (skip the staging half of Step 8). The large-diff rule below applies here too, with `--cached` in place of `HEAD`.
+- **Everything mode (no pre-staged changes):** if the stat is small (roughly under a few hundred changed lines across under ~20 files), pull the full `git diff HEAD`. If it is large, do NOT pull the full diff — read targeted `git diff HEAD -- <file>` for the meaningful files, and classify lockfiles (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `*.lock`), vendored, and generated files from the stat line alone.
+- **Untracked files** never appear in `git diff HEAD`. Read each untracked candidate's content with `git diff --no-index /dev/null <file>` (exits non-zero when the file has content — that is expected, use the output). Never commit a file whose content you have not seen.
+
+## Step 2.5 — Use the hint, trust the diff
+
+If the invocation carried arguments (a hint like "fix the login bug"), use it as intent context for classification and wording. If the hint conflicts with what the diff actually shows, the diff wins. A hint is never permission to skip reading the diff.
 
 ## Step 3 — Safety: detect secrets
 
@@ -52,7 +61,9 @@ Scan the list of files to be committed. Refuse the commit if any file matches a 
 
 On match, output `refusing to commit suspected secret: <file>` and stop. Do not stage or commit anything.
 
-This list is best-effort. It catches common file names but will not catch secrets embedded inside otherwise-harmless files (API keys hardcoded in `src/config.ts`) or repo-specific conventions (a `vault/` directory, custom secret stores). If unsure, err on the side of refusing.
+Also scan the CONTENT you read in Step 2 (diffs, untracked file reads). Refuse if it contains an obvious embedded secret: a private key block (`-----BEGIN ... PRIVATE KEY-----`), an AWS access key (`AKIA` followed by 16 uppercase alphanumerics), or a long high-entropy literal assigned to a name like `api_key` / `token` / `secret` / `password`.
+
+This is best-effort. Filename patterns catch common cases; the content scan catches only blatant ones — it will not catch every secret hidden in config files or repo-specific conventions (a `vault/` directory, custom secret stores). If unsure, err on the side of refusing.
 
 ## Step 4 — Classify the change (Angular default)
 
@@ -118,8 +129,9 @@ Body format:
 
 **Staging rules:**
 
+- **Staged-only mode (Step 2):** stage nothing — commit exactly what is already in the index.
 - Stage files individually by name using `git add <file>` — NEVER use `git add -A` or `git add .` (hard constraint).
-- Stage ALL modified and untracked files that are part of this logical change. If unsure whether an untracked file belongs, include it.
+- Stage ALL modified and untracked files that are part of this logical change. Include an untracked file only after reading its content in Step 2.
 - Do not stage files matching the secrets patterns from Step 3.
 
 **Commit rules:**
@@ -141,7 +153,7 @@ Body format:
 
 ## Step 9 — Return summary
 
-Output exactly one line to the parent conversation:
+Take the short hash from the `git commit` output (or run `git rev-parse --short HEAD`). Output exactly one line to the parent conversation:
 
 ```
 <short-hash> <type>(<scope>): <subject>
