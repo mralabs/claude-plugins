@@ -1,7 +1,7 @@
 # devil-review — v2.0 Restructure Plan (hunt/emit split)
 
-**Status:** Unstarted. Plan created 2026-07-17 from the post-ship adversarial review of the plugin itself (see `phase-3-plan.md` revision log, same date) and the token-load discussion that followed. Supersedes `content-consolidation-plan.md` Phase G as a standalone item (see Item 4 below); Phase F remains independent and ships first.
-**Plugin version at time of writing:** v1.20.0 (schema v1.14).
+**Status:** Items 1, 3, 4 shipped 2026-07-17 (same-day series: Phase F → SKILL thinning → emit-rules relocation → rationale extraction; marker bump v1.20.1). Item 2 (schema diet, v2.0.0) is next. Item 5's fold-in of phase-3 Items 15/17 ships inside Item 2's series. Plan created 2026-07-17 from the post-ship adversarial review of the plugin itself (see `phase-3-plan.md` revision log, same date).
+**Plugin version at time of writing:** v1.20.0 (schema v1.14) at creation; v1.20.1 after the Item 1+3 series.
 **Scope:** Restructure the skill so that the adversarial hunt runs with only hunt content in context, the output contract loads at emit time, the required-field surface shrinks to fields with actual consumers, and rationale/history prose leaves the runtime load entirely. Absorbs phase-3-plan Items 15 and 17 into the hunt content; defers Item 16 to a post-v2.0 saha test.
 
 > **Guiding principle:** The devil is the hunt, not the ledger. Every token of process loaded during code-reading competes with code-reading. A rule earns its place in the runtime files only if it changes what the reviewer *does*; everything that explains *why* lives in docs and is enforced by fixtures.
@@ -42,13 +42,13 @@ The insight behind the split: classification axes are *labels applied to finding
 
 ## Items
 
-### Item 1 — Hunt/emit file split (the ordering lift)
+### Item 1 — Hunt/emit file split (the ordering lift) ✅ SHIPPED 2026-07-17 (scope narrowed: existing filenames kept)
 
 Split `methodology.md` + `output-schema.md` + `rejection-memory.md` into `hunt.md` + `emit.md` along the stage boundary above. SKILL.md instructs: load `hunt.md` at Step 5, run the review, and load `emit.md` only at Step 7. The 19-bullet pre-output checklist moves into `emit.md` and shrinks (most bullets restate field rules that sit adjacent in the same file post-merge; the backstop bullet pattern replaces per-field bullets). Rejection memory Phase A stays orchestrator-side; Phase B moves into `emit.md` where it runs anyway.
 
 **Effort:** one focused session. **Risk:** medium — content moves, no content changes; fixture expected-findings verify behavior is preserved. **Semver:** ships only as part of the v2.0 release commit series.
 
-### Item 2 — Schema diet (v2.0, major)
+### Item 2 — Schema diet (v2.0, major) ⏳ NEXT
 
 Required trace_log fields cut from ~15 to ~6: `ship_blocker_answer` + `ship_blocker_reasoning`, `domains_loaded`, `symbols_inspected`, `mutated_records_inspected`, `scenarios_considered`, `findings_dropped_in_verification`. Everything else becomes conditional (present when its trigger fired: `patch_chain_risk`, `prior_review_summary`, `acceptance_criteria_crosswalk`, `rejections_loaded` when the file exists, `project_rules_loaded` when any finding cites a rule) or is dropped (`external_claims_verified` counter — `evidence_sources` entries already carry the proof; `domains_considered_dropped`; mandatory-nonempty `classification_notes` — folds into a `scenarios_considered` line; `tracked_as_debt` — "no consumer required today" per the current schema text, which is this repo's own YAGNI test failed).
 
@@ -60,13 +60,13 @@ Per-finding surface unchanged in shape (severity, confidence, finding_type, scop
 
 **Effort:** one session including fixture updates. **Risk:** medium — fixtures 01-03 expected-findings reference v1.14 required fields and must be rewritten alongside. **Semver:** major (v2.0.0).
 
-### Item 3 — Rationale extraction to docs
+### Item 3 — Rationale extraction to docs ✅ SHIPPED 2026-07-17 (first pass; hunt-file extraction deliberately conservative)
 
 Move every "Why this exists", "Rationale", saha-test narrative, threshold-calibration story, and interaction essay out of the runtime files into `docs/design-rationale.md` (one section per rule, linked from the rule's one-line statement). Runtime files keep: the rule, the decision tree, the enum, the example when load-bearing. Fixtures are the regression guard for rule semantics — that is what Item 1 of phase-3 built them for.
 
 **Effort:** rides inside Items 1-2 (the split forces touching every section anyway; extraction happens in the same pass). **Risk:** low-medium — per-section claim-verification pass (has any load-bearing clause been dropped?) per the old Phase G discipline, which this item absorbs.
 
-### Item 4 — Absorb Phase G; Phase F unaffected
+### Item 4 — Absorb Phase G; Phase F unaffected ✅ DONE 2026-07-17 (F shipped, G absorbed; consolidation plan closed)
 
 `content-consolidation-plan.md` Phase G (standalone prose compression) is cancelled as standalone work: compressing prose that Items 1-3 are about to relocate and rewrite is wasted effort, by the same "structural work must land first" dependency logic Phase G itself documented. Its discipline (one section per commit, per-commit claim-verification, read-back test) is inherited by Items 1-3. Phase F (threshold rationale consolidation) is independent, ~15-20 min, and ships **before** this plan starts — it reduces the surface Items 1-3 must move.
 
@@ -98,4 +98,5 @@ Splitting the behavior-preserving restructure (1+3) from the breaking release (2
 
 ## Revision log
 
+- 2026-07-17 (same-day, Item 1+3 series shipped) — Three-commit series landed on top of Phase F: (1) SKILL.md thinning — Step 6 checklist 17 → 6 hunt-side bullets, 11 emit-side bullets compressed into a 7-bullet "Pre-emit checklist" at the top of `output-schema.md`, Step 3b prior-relation emission details reduced to a pointer; (2) emit-rules relocation — Scope/Reachability classification, User rejection memory rules (incl. rejection Phase B from `rejection-memory.md`), Severity axes/taxonomy, Verdict + Decision derivation, Patch-chain detection, Prior-relation, Severity dampening, clause (c) all moved from `methodology.md` into `output-schema.md`; (3) rationale extraction — 8 passages (why-exists narratives, saha origin stories, override rationale essays) moved verbatim to `docs/design-rationale.md` with pointer lines left at the rules. **Scope narrowings vs original spec** (sixth consecutive narrowing in this repo's plan history): Item 1 kept the existing filenames instead of creating `hunt.md`/`emit.md` — `methodology.md` IS the hunt file, `output-schema.md` IS the emit file, same stage boundary, and every external reference stays valid; Item 3's hunt-file extraction was deliberately conservative (the tracing disciplines are the plugin's core value — aggressive compression there is Item-2-adjacent work to be done with fixture verification in hand). **Measurements** (wc -c): hunt-time load (SKILL + methodology + rejection-memory) 197,610 → 95,289 bytes (-52%); output-schema.md (emit-time only, loads at Step 7) 99,158; core total 194,447 (-3.6% absolute, but the per-invocation hunt-context number is the one the plan targets — ≤70 KB remains for Item 2 to close). Verbatim-move verification: programmatic line-by-line check, 14/14 non-verbatim lines matched the deliberate anchor edits; fixtures' expected-findings untouched and reference-clean. Marker bump v1.20.1 (patch, à la v1.19.1) closes the series — note the original sequencing sentence said "marker minor bump (à la v1.19.1)", which was internally inconsistent since v1.19.1 was a patch; resolved to patch per CLAUDE.md semver ("clarifications … to reference material").
 - 2026-07-17 — Plan created. Origin: post-ship adversarial review of the plugin (six findings, five shipped as v1.20.0) surfaced the load inversion as the top fit-for-purpose risk; follow-up analysis reframed the saha-test response pattern (miss → new rule → more load → next miss) as the plugin's own patch-chain definition applied to itself, with the hunt/emit ordering lift as the structural fix. Key scope decisions at creation: Phase G cancelled as standalone (absorbed into Items 1-3); phase-3 Items 15/17 folded into v2.0 hunt content; Item 16 deferred to post-v2.0 saha evidence; behavior-preserving restructure deliberately sequenced before the breaking schema release for bisection cleanliness.
