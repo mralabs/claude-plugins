@@ -162,9 +162,9 @@ Before emitting `patch_chain_risk.detected: true`, answer one sanity-check sente
 
 Record the theme-vs-root assessment in `patch_chain_risk.theme_assessment` — this field is mandatory whenever any of signals 1–3 fired, regardless of whether `detected` ends up `true` or `false`. The purpose is auditability: downstream consumers should see that the reviewer considered the guard and chose one way or the other.
 
-### Threshold rationale (acknowledged uncalibrated starting values)
+### Threshold rationale
 
-The specific thresholds — `N` commits scanned, the 50% cluster ratio, the 4-commit window, the 3-of-5 same-file hotspot — are not derived from data. No corpus of past reviews exists to calibrate against. They are starting values chosen to be strict enough to avoid firing on typical 1–2 hotfix sequences but permissive enough to fire on a genuine 3-round iteration. The first round of real usage after shipping is the calibration signal; if the false-positive rate is visible and persistent, revise the thresholds in a v1.10.x patch bump and record the empirical basis in the revision log. Hardcoding arbitrary starting values and iterating on them is preferable to blocking the whole feature on a calibration corpus that does not exist.
+The specific thresholds above (`N` commits scanned, the 50% cluster ratio, the 4-commit window, the 3-of-5 same-file hotspot) are acknowledged uncalibrated starting values — authoritative discipline in `methodology.md` §Calibration rules → Threshold discipline.
 
 ---
 

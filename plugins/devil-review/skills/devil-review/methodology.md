@@ -379,7 +379,7 @@ This rule fires **before** verdict rules 1-4 in the standard precedence. When it
 
 **Rationale.** Round N+1 of a review that keeps surfacing the same dismissed findings is not producing signal — it is producing friction. The user either ignores the output (worst case, loses real future signals), re-invokes `--reject` on every round (friction), or disengages from the plugin (plugin loses a user). The override is the plugin saying "I keep bringing these up and you keep saying they do not matter; I accept your judgment and stop." This is the opposite of the patch-chain override from v1.11, which said "stop iterating because fixes are not working" — here we stop iterating because fixes are not needed.
 
-**Calibration note.** The `≥ 2` threshold is an uncalibrated starting value, same discipline as the v1.10 patch-chain thresholds and the v1.11 chain-closing thresholds. Real usage will surface whether 2 is correct. If users report the override firing too aggressively or too passively, revise in a plugin patch bump and record the empirical basis in the plan doc revision log. Do not treat `≥ 2` as methodology — it is a data-collection parameter that should evolve independently of the rule. The severity carve-out above is NOT a tunable threshold — it is part of the rule itself.
+**Calibration note.** The `≥ 2` resurface threshold is an uncalibrated starting value per §Calibration rules → Threshold discipline (same file, below). The severity carve-out above is NOT a tunable threshold — it is part of the rule itself.
 
 **Anti-pattern to avoid.** Using `--reject` as an ack-dismiss workflow for every mid-severity finding, then letting the reviewer silently accept everything forward. If you find yourself rejecting multiple findings per review as a matter of course, you are calibrating the plugin away from the defects it is meant to catch — that is a usage signal that either (a) the plugin's severity bar is misaligned for your project (a fix to make), or (b) your project has a real false-positive problem in this area (a calibration issue to surface). Rejection is for specific findings you have triaged, not a wholesale preference toggle.
 
@@ -407,6 +407,8 @@ The answer to this question is not just for your own calibration — it must be 
 - Split reviews (large diff grouped by module): **maximum 3 findings per group**
 
 If you have more candidates after the final_check pass, drop the weakest until you fit the cap. One strong finding is more valuable than three weak ones. Padding with low-severity findings dilutes a high-severity one.
+
+**Threshold discipline (authoritative).** Every deterministic threshold in this methodology — the Step 3b patch-chain scan values (`N` commits, 50% cluster ratio, 4-commit window, 3-of-5 hotspot), the chain-closing comparison (`resolved ≥ still_open + new_drift_introduced`), and the chain-of-rejections resurface count (`≥ 2`) — is an acknowledged uncalibrated starting value, not methodology: no corpus of past reviews exists to calibrate against. Values were chosen strict enough not to fire on typical 1–2 hotfix sequences, permissive enough to fire on a genuine 3-round iteration. When real usage shows a threshold over- or under-firing, revise it in a plugin patch bump and record the empirical basis in the plan doc revision log — thresholds evolve independently of the rules that read them.
 
 **Re-read before reporting (working-tree and branch modes only):** Before reporting a finding, read the actual file on disk at that location. If the issue is already fixed in the current working tree, drop it. The diff shows what changed; the file on disk shows the current state — trust the file.
 
@@ -592,7 +594,7 @@ Add a chain-closing condition to the `refactor-recommended` verdict rule (schema
 
 Emit `verdict: needs-attention` (if any in-diff finding remains) or `approve` (if none) in the chain-closing case, and name the chain-closing evidence in `trace_log.ship_blocker_reasoning` or in `decision.rationale`. This operationalizes the dampening the reviewer performed manually in saha test #2, where Round 2 correctly concluded "prior findings resolved, new findings introduced by fix or pre-existing — not a patch chain" and dampened away from `refactor-recommended`.
 
-**Threshold rationale** is in SKILL.md Step 3b (acknowledged uncalibrated starting values, to be revised in a patch bump after real usage calibration). Do not treat the thresholds as methodology — they are data-collection parameters that should evolve independently of the rule itself.
+**Threshold rationale**: see §Calibration rules → Threshold discipline (same file, above) — the thresholds here are acknowledged uncalibrated starting values, revisable in a plugin patch bump on real-usage evidence.
 
 ---
 
