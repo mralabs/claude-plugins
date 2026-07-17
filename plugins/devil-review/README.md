@@ -172,13 +172,12 @@ Reasoning: <one sentence>
 
 Domain classification:
 - Loaded: <comma-separated list of domains>
-- Considered but dropped: <list with one-word reason>
-- Notes: <one sentence on classification calls>
+(ambiguous classification calls are recorded as `scenarios_considered` lines, not a dedicated field — schema v2.0)
 
 Project rules loaded:
 - `<path/to/rule.md>` (<bytes> bytes)
 - ...
-(empty list "none" is valid when no rule file matched; omission is not)
+(present when at least one rule file loaded; omitted when none matched — the `context:` scenarios line carries the count — schema v2.0)
 
 Prior-review summary (present only when a prior run was loaded):
 - Total in prior: <N>
@@ -200,6 +199,7 @@ Architectural decisions checked:
 - <CLAUDE.md section ref, or "n/a">
 
 Scenarios considered:
+- context: prior=<loaded | absent | rejected-...> rejections=<loaded | absent | rejected-malformed-json> rules=<count>
 - <one-line adversarial scenario>
 - ...
 
@@ -211,13 +211,10 @@ Findings dropped in verification:
 - ...
 (empty list "none" is valid when every candidate finding survived the Claim verification pass unchanged; omission is not)
 
-External claims verified: <integer ≥0>
-(counts verification actions tied to load-bearing external-behavior claims; `0` is valid when no finding referenced external systems)
-
 Rejections loaded:
 - `<hash first 12 chars>...` rejected <ISO-8601 timestamp>
 - ...
-(empty list "none" is valid when no rejections.json file exists for this session; absence is a grounding failure)
+(present when a rejections.json exists for the session; omitted when absent — the `context:` scenarios line carries the status — schema v2.0)
 
 ## Findings
 
