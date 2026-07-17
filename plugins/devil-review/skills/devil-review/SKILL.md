@@ -117,7 +117,7 @@ If the resolved diff is empty (no staged, unstaged, untracked, or branch-diverge
 
 ## Step 3b — Patch-chain scan
 
-After collecting the diff but before the large-diff guard, scan recent commit history for patterns that indicate iterative patching on the same surface. Multi-round defensive commits on the same file set are a signal that candidate findings in this review may be artifacts of prior rounds' guards rather than organic defects — and the correct next step is then a structural refactor, not round N+1 of guard-chasing. The rule and severity implications live in the "Patch-chain detection" section of `methodology.md`; this step is the data-collection side.
+After collecting the diff but before the large-diff guard, scan recent commit history for patterns that indicate iterative patching on the same surface. Multi-round defensive commits on the same file set are a signal that candidate findings in this review may be artifacts of prior rounds' guards rather than organic defects — and the correct next step is then a structural refactor, not round N+1 of guard-chasing. The interpretation rule and severity implications live in the "Patch-chain detection" section of `output-schema.md` (loaded at Step 7); this step is the data-collection side, and the theme-vs-root guard below is all the interpretation needed before emit.
 
 ### Collect the commit history
 
@@ -139,7 +139,7 @@ Where `<N>` is `5` for working-tree and branch modes, `10` for PR mode (PRs accu
 
 ### Prior-relation classification (schema v1.11+)
 
-When Step 3b's `<status>` is `loaded`, the loaded prior review's findings feed three **emit-time obligations**: per-finding `prior_relation` attribution (three categories per the plugin v1.15.1 correction — `resolved` is not a finding-level value), the `trace_log.prior_review_summary` roll-up, and severity dampening for `carries-over` findings. Rules live in the "Prior-relation classification" and "Severity dampening for carries-over findings" subsections of `methodology.md`; the Pre-emit checklist in `output-schema.md` enforces them at Step 7. When `<status>` is `absent` or any `rejected-*` value, omit `prior_relation` on all findings and omit `trace_log.prior_review_summary` entirely.
+When Step 3b's `<status>` is `loaded`, the loaded prior review's findings feed three **emit-time obligations**: per-finding `prior_relation` attribution (three categories per the plugin v1.15.1 correction — `resolved` is not a finding-level value), the `trace_log.prior_review_summary` roll-up, and severity dampening for `carries-over` findings. Rules live in the "Prior-relation classification" and "Severity dampening for carries-over findings" sections of `output-schema.md`; its Pre-emit checklist enforces them at Step 7. When `<status>` is `absent` or any `rejected-*` value, omit `prior_relation` on all findings and omit `trace_log.prior_review_summary` entirely.
 
 ### Rejection memory load (schema v1.14+)
 
@@ -151,7 +151,7 @@ Execute its **Phase A** (substeps 1–3) at this step: record any `--reject <CSV
 
 Before emitting `patch_chain_risk.detected: true`, answer one sanity-check sentence: *"do the prior defensive commits address the same underlying root cause, or different root causes on the same file set?"*
 
-- **Same root** → the patch chain is real. The same invariant has been violated repeatedly; each round has added a guard on top. Emit the signal, and it satisfies clause (a) of verdict derivation rule 3 (`refactor-recommended`) in `methodology.md` — prefer refactor over further guard iteration even if individual current findings are only medium severity.
+- **Same root** → the patch chain is real. The same invariant has been violated repeatedly; each round has added a guard on top. Emit the signal, and it satisfies clause (a) of verdict derivation rule 3 (`refactor-recommended`) in `output-schema.md` — prefer refactor over further guard iteration even if individual current findings are only medium severity.
 - **Different roots** → a legitimate hotfix-heavy file (e.g., a known-flaky integration test harness that genuinely receives independent hotfixes) has tripped the frequency/prefix signals without the underlying patch-chain dynamic. Do **not** emit `detected: true`; set `detected: false` with a note in `theme_assessment` explaining why. This guard exists because the deterministic signals alone over-fire on legitimate hotspots, and `refactor-recommended` is wrong for a file where every fix addresses a different invariant.
 
 Record the theme-vs-root assessment in `patch_chain_risk.theme_assessment` — this field is mandatory whenever any of signals 1–3 fired, regardless of whether `detected` ends up `true` or `false`. The purpose is auditability: downstream consumers should see that the reviewer considered the guard and chose one way or the other.
@@ -184,7 +184,7 @@ The findings cap still applies per group (see `methodology.md`).
 
 **Read these files before reviewing the diff.** They are not optional. They define the review itself.
 
-1. **`methodology.md`** (sibling file in this skill directory) — operating stance, attack surface, severity + block test, calibration rules, finding bar, grounding rules, final check. Load it now.
+1. **`methodology.md`** (sibling file in this skill directory) — operating stance, attack surface, tracing disciplines, severity + block test, hunt-side calibration rules (hard cap, lift hierarchy, generalization test, threshold discipline), finding bar, grounding rules, claim verification, final check. Load it now. (Emit-time rules — classification axes, verdict/decision derivation, rejection Phase B — live in `output-schema.md` and load at Step 7, not now.)
 
 2. **Pre-review context** (in this order, skip if absent):
    - **CLAUDE.md** (repo root) — read the "Architectural Decisions" section or equivalent. These are intentional choices. Findings that contradict them must be marked `[spec-accepted]` or dropped.

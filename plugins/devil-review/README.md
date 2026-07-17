@@ -94,7 +94,7 @@ Findings carry a `finding_type` that places each one into `correctness | design_
 
 Alongside the prose-facing `verdict`, every run emits a machine-readable `decision` block with `action: iterate | stop-and-refactor | ship`, `patch_chain_detected` (boolean), `iteration_count` (integer), and `rationale` (one sentence). Canonical pairing: `block`/`needs-attention` → `iterate`, `refactor-recommended` → `stop-and-refactor`, `approve` → `ship`. CI gates and `/loop`-style runners should read `decision.action` rather than parse prose.
 
-Verdict and decision can **disagree** in one important case: `verdict: needs-attention` + `decision.action: stop-and-refactor` when the patch-chain signal fires at `iteration_count ≥ 2` — the reviewer judges the current round is iterable in principle, but the session-level pattern says "stop, refactor instead of another round". When the two disagree, `decision.action` is the automation signal and the disagreement is called out in `rationale`. See `skills/devil-review/methodology.md` for the full decision tree.
+Verdict and decision can **disagree** in one important case: `verdict: needs-attention` + `decision.action: stop-and-refactor` when the patch-chain signal fires at `iteration_count ≥ 2` — the reviewer judges the current round is iterable in principle, but the session-level pattern says "stop, refactor instead of another round". When the two disagree, `decision.action` is the automation signal and the disagreement is called out in `rationale`. See the emit-time rules in `skills/devil-review/output-schema.md` for the full decision tree.
 
 ## What it looks for
 
@@ -256,7 +256,7 @@ Followed by a JSON fence carrying the same data in a structured form for downstr
 skills/devil-review/
 ├── SKILL.md           # orchestration entry point (arguments, diff collection, domain routing)
 ├── methodology.md     # review philosophy, severity, calibration, block test
-├── output-schema.md   # markdown + JSON output format contract
+├── output-schema.md   # emit-time rules (classification axes, verdict/decision) + output format contract
 └── domains/
     ├── ui.md          # web UI / view-layer checklist
     ├── mobile.md      # iOS, Android, React Native, Flutter checklist
