@@ -54,6 +54,14 @@ Delegates commit message generation to a dedicated Haiku subagent running in a f
 
 Track competitors, upstream tools and dependencies — release tracking for changelogs you care about. Optional weekly GitHub Actions check keeps a rolling "Radar digest" issue up to date. Lives in its own repository; this marketplace catalogs it from there.
 
+```bash
+/radar init      # creates .radar/ (git-tracked), proposes what to track
+/radar           # check → changelogs → analysis grounded in YOUR repo
+/radar add <url> # track a new tool
+/radar discover  # find new tools in your categories
+/radar deep <x>  # research one tool in depth — tracked or not
+```
+
 [Full documentation](https://github.com/mralabs/radar)
 
 ## License
