@@ -10,6 +10,8 @@ Claude Code plugin marketplace by [mralabs](https://github.com/mralabs).
 
 # Install plugins you want
 /plugin install devil-review@mralabs
+/plugin install commit@mralabs
+/plugin install radar@mralabs
 ```
 
 ## Plugins
@@ -27,6 +29,7 @@ Adversarial code review that finds the subtle bugs, race conditions, and violate
 /devil-review --pr 42                  # review a GitHub PR
 /devil-review --base develop           # diff against specific ref
 /devil-review concurrency handling     # focus on specific area
+/devil-review --reject 2,5             # reject prior findings by index, then re-review
 ```
 
 [Full documentation](plugins/devil-review/)
@@ -49,11 +52,7 @@ Delegates commit message generation to a dedicated Haiku subagent running in a f
 
 > *Release radar for your repo.*
 
-Track competitors, upstream tools and dependencies — release tracking for changelogs you care about. Lives in its own repository; this marketplace catalogs it from there.
-
-```bash
-/plugin install radar@mralabs
-```
+Track competitors, upstream tools and dependencies — release tracking for changelogs you care about. Optional weekly GitHub Actions check keeps a rolling "Radar digest" issue up to date. Lives in its own repository; this marketplace catalogs it from there.
 
 [Full documentation](https://github.com/mralabs/radar)
 
