@@ -1,7 +1,7 @@
 # devil-review — Phase 3 Plan
 
-**Status:** Item 1 shipped 2026-04-14 (v1.10.0). Items 6, 7, 8, 9 shipped 2026-04-15 (v1.12.0 / v1.13.0 / v1.14.0 / v1.15.0 + v1.15.1 patch). Items 12, 11, 10 shipped 2026-04-15 (v1.16.0 / v1.17.0 / v1.18.0) — saha-test-#3 menu complete. Item 10's UX relocated to a `--reject` inline flag in v1.19.0 (2026-04-15, same-day). Items 2, 3, 4, 5 remain unstarted (demand-gated per original policy). Item 14 (fixture 04 for chain-of-rejections override coverage) added 2026-04-15 post-v1.18.0 review — unstarted, trigger-gated.
-**Plugin version at time of writing:** v1.3.2 (initial spec); v1.10.0 (Item 1 shipping); v1.11.0 (auto-detect prior-review); v1.12.0–v1.15.0 (saha-test-#2 shipping series 2026-04-15); v1.15.1 (patch correction); v1.16.0–v1.18.0 (saha-test-#3 shipping series 2026-04-15); v1.19.0 (UX relocation same-day)
+**Status:** Item 1 shipped 2026-04-14 (v1.10.0). Items 6, 7, 8, 9 shipped 2026-04-15 (v1.12.0 / v1.13.0 / v1.14.0 / v1.15.0 + v1.15.1 patch). Items 12, 11, 10 shipped 2026-04-15 (v1.16.0 / v1.17.0 / v1.18.0) — saha-test-#3 menu complete. Item 10's UX relocated to a `--reject` inline flag in v1.19.0 (2026-04-15, same-day). Items 2, 3, 4, 5 remain unstarted (demand-gated per original policy). Item 14 (fixture 04 for chain-of-rejections override coverage) added 2026-04-15 post-v1.18.0 review — unstarted, trigger-gated. Items 15, 16, 17 added 2026-04-26 from saha test #4 (cross-model adversarial comparison: codex vs devil-review) — unstarted, ship as series 15 → 16 → 17.
+**Plugin version at time of writing:** v1.3.2 (initial spec); v1.10.0 (Item 1 shipping); v1.11.0 (auto-detect prior-review); v1.12.0–v1.15.0 (saha-test-#2 shipping series 2026-04-15); v1.15.1 (patch correction); v1.16.0–v1.18.0 (saha-test-#3 shipping series 2026-04-15); v1.19.0 (UX relocation same-day); v1.19.1 (content-consolidation completion 2026-04-20); v1.20.0+ targets unstarted (saha-test-#4 series)
 **Scope:** Everything deferred out of v1.3.x. Phase 1 (architecture) and Phase 2 (content) landed in v1.3.0; patches in v1.3.1/v1.3.2. Phase 3 is the "durability & maturation" bucket — optional, pickable à la carte after real usage feedback.
 
 > **Guiding principle:** Don't design for hypothetical requirements. Every Phase 3 item is justified against an observed gap, not a theoretical one. Use the skill in real PRs first; let friction dictate priority.
@@ -670,6 +670,137 @@ Until one of these fires, the override-0 coverage gap is a known accepted gap pe
 
 ---
 
+## Item 15 — Severity floor for user-irrecoverable findings
+
+**Goal:** Establish a methodology rule that any finding whose user-impact requires out-of-band recovery (restart app, restart OS, reinstall, manually clear cache/data, factory reset) hits a `high` minimum severity floor. Severity dampening rules (carries-over, prior-relation) cannot demote below the floor. The floor closes a calibration drift gap where the LLM reviewer can talk itself into "edge case" framing on bugs whose user-recovery cost makes them structurally above the noise threshold.
+
+**Why it matters (observed, not speculative):** Saha test #4 (cross-model adversarial comparison: codex vs devil-review on the same diff in another project, devil-review running v1.19.1) produced a concrete calibration gap. devil-review correctly identified a permission-cache bug whose user impact was "can't recover until app restart" — verbatim from the finding text — but routed it to `considered_not_promoted` rather than promoting to `findings`. Codex (different model family, fresh perspective) flagged the same bug as no-ship. The promotion path filtered out a finding whose user-recovery cost was structurally above the noise threshold. User feedback verbatim: "Severity miscalibration — gördü ama indirdi ... Bu keşif hatası değil, kalibrasyon hatası — gerçek user impact'i (kullanıcı OS Settings'ten permission açar → restart'a kadar bildirim yok) doğru tartmadı." Without a severity floor tied to recovery cost, the LLM reviewer's calibration drifts on exactly the class of bug that should never ship.
+
+**Non-goals:**
+- Not an automated impact classifier — the floor is a methodology rule the reviewer applies during severity calibration, not a separate field on findings.
+- Not a replacement for the ship-blocker question — the floor sets a *minimum* severity; the reviewer still answers ship-blocker honestly.
+- Not a generalized calibration override — narrowly scoped to recovery-cost signals (restart/reinstall/data-loss-to-recover).
+
+**Shape (target v1.20.0 minor, schema v1.15):**
+
+Methodology addition under "Severity calibration" → new subsection "Severity floor for user-irrecoverable findings":
+
+A finding hits a `high` minimum severity floor when the user impact requires:
+- Restarting the application (force-quit + relaunch)
+- Restarting the OS / device
+- Reinstalling the app
+- Manually clearing app data, cache, or config files
+- Factory reset / fresh install
+
+The floor applies regardless of frequency (even if the bug fires once per session, recovery cost makes it high+) and cannot be demoted by severity dampening (`carries-over` rule cannot push below the floor). When the floor applies, the finding body must include the recovery cost explicitly: e.g., "Recovery cost: user must restart app to recover (no in-process recovery path)." Body prose only — the floor is a calibration rule, not a structured tag.
+
+Schema-side, one new audit integer: `trace_log.severity_floor_applications` (≥0) counting how many findings the floor was applied to in this review. Same enforcement pattern as `external_claims_verified` and `rejections_loaded` — required field, `0` is valid when no findings hit the floor.
+
+**Verdict derivation integration:** No new rule. Existing rule 1 (`block`) already requires severity ≥ high; any finding hitting the floor automatically becomes a candidate for `block` if it's also in-diff + reachable + ship_blocker_answer=yes. The floor's value is forcing severity assignment to be honest, not adding a new path.
+
+**Backward compatibility:** Severity is already an enum; raising a floor adds no new values. v1.14 consumers parse v1.15 payloads without error. Replay property: a v1.14-era review where the reviewer had honestly assigned `high` to a permission-cache bug produces identical verdict under v1.15. The change only affects reviews where the v1.14 reviewer would have assigned `medium` and the v1.15 reviewer corrects to `high` — i.e., the calibration drift the floor is designed to prevent.
+
+**Estimated effort:** 1.5–2 hours. Methodology subsection (most of the work), schema field, README prose, fixture audit (likely no current fixture trips the floor; 03-unsafe-migration is closest but is already a `block` on data-loss).
+
+**Dependency:** None for shipping itself. **Hard ordering requirement for Item 16** (cap-bypass): without the floor pushing findings up to `high`, Item 16's `must_promote` pool stays empty in practice and the schema change is dead weight. Ship 15 first.
+
+**Trigger to activate:** ✅ Triggered 2026-04-26 by saha test #4 — concrete observation of devil-review demoting a "user must restart" bug below promotion threshold while codex flagged it no-ship. Ship as part of saha-test-#4 series (Item 15 → 16 → 17).
+
+**Risk:** Medium. Recovery-cost classification is qualitative — "data corruption requires re-import" might or might not count depending on whether re-import is in-app vs out-of-band. Mitigation: the methodology lists 5 explicit triggers (restart-app/restart-OS/reinstall/clear-data/factory-reset); reviewer applies the floor only when one of these is concretely named in the finding's recovery-cost line. Edge cases drop to standard severity calibration. The floor is a *minimum*, not a *cap* — reviewer can always go higher when impact is critical.
+
+---
+
+## Item 16 — Two-channel emit (must-promote channel for cap-bypassing high-severity findings)
+
+**Goal:** Add a separate top-level `must_promote` array that holds high-or-critical-severity in-diff+reachable findings. Entries in `must_promote` do NOT count against the hard cap (3 / 5 / 3-per-group per `methodology.md:289` + `:405`). The cap remains in force for low/medium findings — its load-bearing purpose (preventing noise from drowning a single high finding) is preserved — but the cap can no longer silently bury high+ findings into `considered_not_promoted` simply because the group has more than 3.
+
+**Why it matters (observed, not speculative):** Saha test #4 surfaced a concrete cap-overflow case. The split-review group cap of 3 is structural per `methodology.md:289` ("3 under 500 lines / 5 under 1500 / 3 per split group") and `methodology.md:405` ("Split reviews: maximum 3 findings per group"). When 4+ high-severity findings exist in a group, the cap forces one or more into `considered_not_promoted` regardless of severity ordering. User feedback verbatim: "Devil kendi prompt'unda findings sayısını grup başına 3'le sınırlandırıyor. Yani 5 gerçek high-priority bulgu olsa bile en fazla 3'ü yüzeye çıkar. Permission cache muhtemelen bu cap yüzünden z-index collision'a yenildi. Yapısal bir handicap — daha derin sorunları kasıtlı olarak gizleyebilir." The cap exists for noise control over low/medium findings; applying it uniformly to high+ findings is overshoot.
+
+**Non-goals:**
+- Not removing the cap. Cap remains for `low`/`medium` findings — that's its load-bearing purpose.
+- Not a verdict override mechanism. `must_promote` findings flow through standard verdict rules (1-4); they just bypass the cap.
+- Not retroactive — does not change how `considered_not_promoted` is populated for legacy payloads.
+
+**Shape (target v1.21.0 minor, schema v1.16):**
+
+Top-level new optional array, identical finding shape to standard `findings`:
+```json
+"must_promote": [
+  { "title": "...", "severity": "high | critical", "scope": "in-diff", "reachability": "reachable", "finding_type": "...", "file": "...", "lines": "...", "body": "..." }
+]
+```
+
+Methodology addition under "Calibration rules" → new subsection "Two-channel emit (cap-bypass for high-severity in-diff findings)":
+
+After the Claim verification pass (steps 1-5) and before the hard cap is applied, partition surviving findings into two pools:
+- **`must_promote` pool**: any finding with `severity ∈ {high, critical}` AND `scope == "in-diff"` AND `reachability == "reachable"`.
+- **`findings` pool**: everything else (low/medium of any scope, plus high+/critical that are `pre-existing`/`future-work` or `hypothetical`/`requires-specific-config`).
+
+Apply the hard cap (3 / 5 / 3-per-group) **only to the `findings` pool**. The `must_promote` pool has no cap — every qualifying finding emits.
+
+`considered_not_promoted` continues to receive cap-overflow from the `findings` pool only. There is no `must_promote` overflow.
+
+**Verdict derivation integration:** Verdict rules 0-4 must be amended to evaluate over `must_promote ∪ findings` rather than just `findings`. Concretely:
+- Rule 0 (chain-of-rejections override): unaffected — operates on resurface_count, pool-independent.
+- Rule 1 (`block`): reads from union. A `must_promote` finding with `finding_type ∈ {correctness, absent}` AND `ship_blocker_answer == "yes"` triggers `block` exactly as a `findings`-pool finding would.
+- Rule 2 (`needs-attention`): reads from union for "any in-diff + reachable finding of material severity".
+- Rule 3 (`refactor-recommended`): reads from union for the design_debt count and the patch-chain signal interaction.
+- Rule 4 (`approve`): requires both pools empty (or only non-driving findings — pre-existing/future-work or hypothetical/requires-specific-config).
+
+**Markdown rendering:** New section "Must promote (cap-bypass)" rendered before the standard "Findings" section, only when `must_promote` is non-empty. Format identical to standard finding format. Counts roll into the trace log header line: `Findings: N must-promote + M capped + K considered-not-promoted`.
+
+**Backward compatibility:** Field is optional; v1.15 consumers parse v1.16 payloads without error. Replay property: legacy reviews with no `must_promote` field treat it as `[]`, all findings flow through the standard cap path, verdict calculation is unchanged. The new pool only changes outcomes when the v1.16 reviewer actively classifies findings into it. A v1.15 review whose author would have hit the cap with 4 high-severity findings still emits the same `considered_not_promoted` array under v1.15 rules; v1.16 changes that pattern by routing 1+ of those into `must_promote`.
+
+**Estimated effort:** 3–4 hours. Methodology partition rule, schema additions (top-level array), verdict rule amendments (touches all five rules), markdown rendering, fixture audit (no current fixture has 4+ high-severity findings; fixture 04 may exercise it after Item 14 ships).
+
+**Dependency:** **Item 15 ships first.** The `must_promote` pool is meaningfully populated only when Item 15's severity floor is actively pushing findings up to `high`. Without Item 15, `must_promote` stays empty in practice and the schema change is dead weight.
+
+**Trigger to activate:** ✅ Triggered 2026-04-26 by saha test #4 — concrete cap-overflow observed in split-review-group context where high-severity bugs were demoted to `considered_not_promoted` against severity ordering.
+
+**Risk:** Medium. The pool partition is mechanical, but the verdict rule changes touch every rule (0-4). Mitigation: the partition rule is exactly mechanical (`severity ∈ {high, critical}` AND scope filter AND reachability filter); replay property is preserved by the empty-default; existing fixtures regression-test the union semantics. Cross-section consistency check needed (same class as v1.17.0 self-review's Scope-vs-Severity-axes drift): every section that mentions "the findings array" must be checked for whether it should now read "findings ∪ must_promote".
+
+---
+
+## Item 17 — Upstream event-source trace for event-driven findings
+
+**Goal:** Extend Claim verification pass with a new step (step 6) that requires the reviewer to trace the event source upstream when a finding's load-bearing claim involves a watched event, IPC message, websocket message, file watcher event, or any other event-driven trigger. Without the upstream trace, the reviewer treats the event as a constant when it's actually variable — finding bodies say "when X event arrives, Y happens" without verifying whether X actually arrives in the conditions claimed.
+
+**Why it matters (observed, not speculative):** Saha test #4 produced a concrete depth gap. Codex (cross-model comparison) traced upstream into `src-tauri/src/application/status_service.rs` to verify what event source `agent_status_watch` actually emitted under various conditions, including transient cases. devil-review stayed in the frontend slice and treated the event as a given. User feedback verbatim: "Codex'in log'unda src-tauri/src/application/status_service.rs'i birden fazla sed call ile okuduğunu görüyorum (satır 60-67). Yukarıdan agent_status_watch event source'una kadar gitti. Devil muhtemelen frontend diff'inde kaldı. Backend bağlantısını okumamak, 'neden bu event geliyor, hangi koşulda transient olabilir' sorusunu cevaplayamamak demek." This is a methodology gap, not a model gap — devil-review did not have a step that said "if your finding involves an event handler, trace the source". The result is finding bodies that assert event semantics without verifying them.
+
+**Non-goals:**
+- Not a generic "explore upstream from every finding" rule — that would explode review scope. Triggered only when the finding's load-bearing claim involves an event/subscription/message.
+- Not a replacement for the diff-only scope rule — `scope: in-diff` findings remain in-diff. The upstream trace is for *understanding* the finding correctly, not for raising additional findings outside the diff (those would be `scope: pre-existing`).
+- Not an evidence-gate extension — Item 12's evidence gate (step 5) covers external library/runtime claims; Item 17 (step 6) covers internal event sources within the same codebase.
+
+**Shape (target v1.22.0 minor, schema v1.17):**
+
+Methodology addition under "Claim verification pass" → new step 6 (after the existing 5 steps from Item 12):
+
+**Step 6 — Event-source upstream trace.** When a finding's load-bearing claim involves a watched event, IPC message, websocket message, file watcher event, or other event-driven trigger:
+1. Identify the event identifier (channel name, event type, message kind) from the consumer code.
+2. Search the codebase for the emitter (`grep`/`Glob` for the identifier).
+3. Read the emitter to verify under what conditions the event fires — including transient/error/edge cases.
+4. If the emitter behavior contradicts the finding's assumption (e.g., "this event fires on error" → emitter shows it fires on success too), revise or drop the finding.
+5. If the emitter cannot be located within the codebase (event comes from a runtime, OS, or external service), drop to step 5 (Item 12's evidence gate) — cite runtime documentation or drop the finding.
+
+Schema-side, one new audit integer: `trace_log.event_sources_traced` (≥0) counting how many event sources were traced. Same enforcement pattern as `external_claims_verified` — required field, `0` is valid when no findings involved events.
+
+The Claim verification pass title and any cross-references update from "five steps" (current, post-v1.16.0) to "six steps".
+
+**Verdict derivation integration:** None. The trace is part of pre-cap calibration, not verdict derivation.
+
+**Backward compatibility:** New trace_log integer is required (same enforcement pattern as `external_claims_verified`). Default-to-zero on absent for legacy payloads. Replay property: pre-v1.17 payloads have no event-source-trace expectation, so verdict is unchanged. Post-v1.17 reviews emit `event_sources_traced: 0` honestly when no findings involved events, satisfying the requirement without forcing trace work that has no subject.
+
+**Estimated effort:** 2 hours. Methodology section (step 6 prose), schema field, README, fixture audit (fixture 01-guard-cluster-refactor may have an event-driven finding worth exercising; fixtures 02 and 03 likely do not).
+
+**Dependency:** **Item 16 ships first.** Item 17's value compounds with two-channel emit because the upstream trace may push findings up the severity scale (revealing the event fires more often than thought) which then needs Item 16's cap-bypass channel to surface them at full count. Item 17 could ship in parallel with 16 in principle, but serial keeps regression-bisection clean per "Do not batch".
+
+**Trigger to activate:** ✅ Triggered 2026-04-26 by saha test #4 — concrete depth gap observed where the reviewer stayed in the diff slice and missed the event-source semantics that codex traced upstream.
+
+**Risk:** Low–medium. The trace is bounded (consumer → emitter, not arbitrary upstream walking). Edge case: when the emitter is dynamically constructed (event name from a config, runtime registration), the trace may be inconclusive — methodology must accept "emitter not statically locatable, dropping to step 5 evidence-gate semantics" as a valid resolution.
+
+---
+
 ## Sequencing recommendation
 
 Not a fixed order — pick based on observed need.
@@ -694,7 +825,15 @@ Not a fixed order — pick based on observed need.
 10. **Then Item 11 (reachability classification).** New required field on findings, verdict rule filter extension (mirroring Item 9's scope filter). Medium-size shipping. Best before Item 10 because rejection memory works better when the plugin correctly flags hypothetical findings as hypothetical — hypothetical-tagged findings are the most common rejection target and being self-flagged reduces the rejection pressure.
 11. **Then Item 10 (user rejection memory).** Largest Phase 3 item to date — new sidecar storage format, new UX for rejection, Step 3b extension, schema additions, chain-of-rejections verdict clause. Shipping last minimizes rework because Item 11's reachability classifier and Item 12's evidence gate both reduce the finding surface that would otherwise pressure users toward rejection in the first place.
 
-**Do not batch.** Each item is independent and shippable alone. Batching increases risk and obscures which change caused what behavior shift. This is especially true for Items 6–12 which each touch schema — batching makes regression bisection across fixtures harder.
+**Post saha-test #4 recommended sequence (2026-04-26, extends the saha-test-#3 sequence above):**
+
+12. **Ship Item 15 (severity floor for user-irrecoverable findings) next.** Smallest schema footprint (one trace_log integer), pure methodology calibration rule. **Hard ordering requirement** (not just preference): without the floor pushing findings up to `high`, Item 16's `must_promote` pool stays empty in practice and the schema change is dead weight. Low risk — methodology rule with no verdict-rule changes; existing rule 1 (`block`) already does the right thing once severity is honestly assigned.
+13. **Then Item 16 (two-channel emit / `must_promote` channel).** Schema-touching minor (new top-level array, verdict rule amendments to all five rules). Bypasses the hard cap for high+critical in-diff+reachable findings. Best after Item 15 because the floor is what makes the bypass actively trigger; before Item 15, `must_promote` stays empty and the schema additions are unexercised dead weight.
+14. **Then Item 17 (upstream event-source trace).** Methodology extension to Item 7's claim verification pass (now six steps after Item 12 took it from four to five). Best after Items 15+16 because the upstream trace may surface high-severity findings that then need the floor (15) and the cap-bypass (16) to land correctly in the output.
+
+Sequencing rationale: smallest-footprint-first, with each item compounding on the previous. Reverse direction from saha-test-#3 (which was largest-last because of risk); saha-test-#4 is smallest-first because of the dependency chain. Items 15 → 16 form a tight pair (15 enables 16); Item 17 is loosely coupled and could ship in parallel with 16, but serial keeps regression-bisection clean per "Do not batch".
+
+**Do not batch.** Each item is independent and shippable alone. Batching increases risk and obscures which change caused what behavior shift. This is especially true for Items 6–12 and 15–17 which each touch schema — batching makes regression bisection across fixtures harder.
 
 ---
 
@@ -715,8 +854,11 @@ Phase 3 is never strictly "done" — it's a menu, not a milestone. But we can ca
 - [x] Finding reachability classification shipped (Item 11) — v1.17.0 on 2026-04-15, schema v1.13 with required `findings[].reachability` enum + default-to-reachable backward-compat + verdict filter mirroring v1.10's scope filter
 - [x] Evidence gate for external claims shipped (Item 12) — v1.16.0 on 2026-04-15, schema v1.12 with `findings[].evidence_sources` + `trace_log.external_claims_verified` + `unverified-external-claim` reason code; methodology Claim verification pass extended from four to five steps
 - [ ] Fixture 04 exercising chain-of-rejections override (Item 14) shipped OR saha evidence shows override 0 does not fire in practice (gap remains acceptable)
+- [ ] Severity floor for user-irrecoverable findings shipped (Item 15)
+- [ ] Two-channel emit / `must_promote` channel shipped (Item 16)
+- [ ] Upstream event-source trace shipped (Item 17)
 
-All thirteen remain open indefinitely without blocking any user-facing feature. Items 1, 6, 7, 8, 9, 10, 11, 12 are shipped. Item 14 is spec'd but unstarted (trigger-gated on saha data). Items 2, 3, 4, 5 remain demand-gated.
+All sixteen remain open indefinitely without blocking any user-facing feature. Items 1, 6, 7, 8, 9, 10, 11, 12 are shipped. Item 14 is spec'd but unstarted (trigger-gated on saha data). Items 15, 16, 17 are spec'd from saha test #4 (2026-04-26) — unstarted, ship as series 15 → 16 → 17. Items 2, 3, 4, 5 remain demand-gated.
 
 ---
 
@@ -734,3 +876,4 @@ All thirteen remain open indefinitely without blocking any user-facing feature. 
 - **2026-04-15 (same-day, saha-test-#3 series complete)** — Item 10 (user rejection memory) shipped as v1.18.0 / schema v1.14. Largest Phase 3 item to date: new sibling `/devil-reject` skill (`plugins/devil-review/skills/devil-reject/`), new session-scoped sidecar `.claude/devil-review/<session>/rejections.json` (with its own sidecar schema_version "1.0" independent of the main payload schema), new Step 3b "Rejection memory load" substep in `/devil-review`, new required `trace_log.rejections_loaded`, new optional `findings[].previously_rejected`, and new chain-of-rejections verdict override (rule 0, highest precedence). The override is the automation-facing dual of v1.11's chain-closing override: chain-closing said "fixes are working, don't escalate to refactor"; chain-of-rejections says "user and reviewer disagree, stop iterating". The ≥2 resurface threshold is an uncalibrated starting value per the discipline used in v1.10 patch-chain and v1.11 chain-closing thresholds. Pre-ship self-review caught zero text-drift inconsistencies after the "four rules → five rules" rename and hash-normalization synchronization check across four surfaces. A post-ship adversarial review of the full saha-test-#3 shipping series (including this commit) surfaced two low-severity design_debt items tracked for v1.18.x — sidecar `schema_version` written but not validated by readers, and fixtures 01/02/03 do not exercise the chain-of-rejections override (rule 0) because all three fixtures have resurface_count=0. Pre-ship self-review caught text-level drift; post-ship review caught design-pattern gaps — different scopes, both worth noting for the shipping-series record. The saha-test-#3 menu is now complete (Items 12 → 11 → 10 shipped in sequence); Items 1, 6, 7, 8, 9, 10, 11, 12 are shipped total across the full Phase 3 run so far, with Items 2, 3, 4, 5 remaining demand-gated per original policy.
 - **2026-04-15 (same-day, v1.19.0 UX relocation)** — v1.19.0 replaced the `/devil-reject` sibling skill (shipped in v1.18.0) with a `--reject <CSV>` inline flag on `/devil-review`. User-surfaced UX friction: the two-skill approach (review → see findings → invoke separate skill → re-review) required two command invocations when the common workflow wanted one. The inline flag collapses this to a single call — `/devil-review --reject 2,5` records rejections against the most recent prior snapshot and runs a fresh review in one step. Schema unchanged at 1.14, sidecar `rejections.json` format unchanged (still schema_version "1.0"), verdict override rule 0 unchanged, and `findings[].previously_rejected` + `trace_log.rejections_loaded` semantics unchanged. What changed: the skill directory `plugins/devil-review/skills/devil-reject/` was deleted (147 lines gone); Step 1 of `/devil-review` SKILL.md gained `--reject` argument parsing; Step 3b's "Rejection memory load" was restructured into 7 explicit substeps with substep 1 now the authoritative hash-normalization spec (moved from the deleted /devil-reject Step 4) and substep 2 the `--reject` flag application; three new error codes added for --reject error handling (reject_without_prior, reject_index_out_of_range, rejections_file_malformed). Minor bump (not major) per CLAUDE.md semver — no output schema change, no verdict semantic change, just slash-command surface rearrangement. User explicitly accepted the breakage for any intermediate `/devil-reject` invocations ("backward yapmaya gerek yok"); in practice the v1.18.0 skill existed for minutes in this session and had no deployed users. The two v1.18.x tracked items (sidecar schema_version validation gap, override-0 fixture coverage gap) are now tracked for v1.19.x — the relocation did not address either of them, and they remain patch-worthy independently of the UX change.
 - **2026-04-15 (same-day, post-v1.19.0 planning)** — post-ship review's two tracked follow-up items formalized with distinct homes based on scope. (a) **Sidecar schema_version validation** (~5 lines, zero-risk until sidecar evolves): recorded as an inline TODO comment in `SKILL.md` Step 3b substep 3 rather than a full plan item. Full Item spec would be overkill for a 5-line fix tied to a deterministic trigger (next sidecar v1.1 field addition); the TODO sits next to the code that needs the fix and fires naturally when a future maintainer touches those paths. Item number intentionally skipped (the plan jumps from Item 12 to Item 14). (b) **Fixture 04 exercising chain-of-rejections override (Item 14)** added as a formal plan item with goal, shape, trigger, and risk. Full item spec is warranted because the work is non-trivial (30-60 min post-calibration, longer pre-calibration), the trigger is softer (saha data required to avoid premature lock-in), and the risk of writing pre-calibration is real (locks in current behavior rather than correct behavior). Trigger: first real `/devil-review --reject` saha test with ≥2 re-raised findings, OR regression suspicion on rule 0, OR any modification to rule 0 semantics. Until one of these fires, the override-0 coverage gap is accepted per tracking discipline. No version bump this revision (doc-only); plan doc convention.
+- **2026-04-26 (saha test #4)** — Saha test #4 (cross-model adversarial comparison: codex adversarial review vs devil-review on the same diff in another project, devil-review running v1.19.1) produced concrete calibration and depth gaps mapping to three new items. Plugin user ran both reviewers and reported five distinct gaps. The three structural correctness gaps that became items: (a) **Severity miscalibration** — devil-review correctly identified a permission-cache bug ("can't recover until app restart" — verbatim) but routed it to `considered_not_promoted` rather than promoting; codex (different model family) flagged the same bug as no-ship. The promotion path filtered out a finding whose user-recovery-cost made it structurally above the noise threshold. → **Item 15** (severity floor for user-irrecoverable findings: restart-app/restart-OS/reinstall/clear-data/factory-reset triggers force `high` minimum severity, dampening cannot demote below). (b) **Cap-overflow on high-severity findings** — split-review group cap of 3 (`methodology.md:289` + `:405`) silently buried 4th+ high-severity findings into `considered_not_promoted` regardless of severity ordering; the cap exists for noise control over low/medium findings, but applying it uniformly to high+ findings is overshoot. → **Item 16** (two-channel emit with `must_promote` array bypassing the cap for high+critical in-diff+reachable findings; verdict rules 0-4 amended to read from `must_promote ∪ findings`). (c) **Frontend-slice-only review** — devil-review stayed in the diff slice and missed event-source semantics that codex traced upstream into a backend file. Methodology had no step requiring upstream trace for event-driven findings. → **Item 17** (upstream event-source trace as Claim verification pass step 6, paralleling Item 12's step 5 evidence gate but for internal events rather than external runtimes). Two non-Item observations resolved without new spec: (d) **"iterate" verdict feels soft compared to "no-ship"** — saha feedback noted devil's `verdict: needs-attention` + `decision.action: iterate` reads as "fix and continue" while codex's "no-ship" framing was clearer stop signal. Post-analysis showed this collapses to (a): once the permission-cache bug is correctly promoted to `findings` with severity ≥ high (Item 15's floor), verdict rule 1 produces `verdict: block` which IS the existing no-ship signal. The action label "iterate" describes the developer workflow ("fix this then come back"), not the ship gate. No new item needed; if post-shipping saha test still shows the verdict's no-ship-ness is not visually prominent in markdown, surface as a future polish item then. (e) **Same-model-family blindspot** — both impl and review use Claude; patterns Claude considers acceptable (e.g., `finally { known = true }`) pass through. Plugin code cannot fix this; documentation update only — README "Limitations" or "Complementary tooling" section to note "pair with cross-model adversarial review (e.g., codex plugin in this same marketplace) for severity calibration triangulation". Ships as patch alongside or after the 15-16-17 series. Sequencing recommendation: Item 15 → 16 → 17, smallest-footprint-first, with hard ordering between 15 and 16 (15 enables 16's `must_promote` pool to be non-empty in practice). Reverse direction from saha-test-#3's largest-last sequencing because the dependency chain runs the other way here. Unstarted; no version bump this revision (doc-only).
