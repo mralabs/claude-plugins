@@ -199,6 +199,8 @@ plugins/commit/
 
 The skills are intentionally thin — they inject the task into the forked subagent's prompt. All classification, formatting, and commit logic lives in `agents/commit-writer.md`. To customize the subagent's behavior (e.g. add your own type vocabulary, stricter scope rules, different secret patterns), edit that single file.
 
+One wiring detail that matters (v0.3.1): the skills reference the subagent with the **plugin-qualified** name — `agent: commit:commit-writer`, not `agent: commit-writer`. A bare name silently fails to resolve; the fork then runs a generic agent on your session model, none of commit-writer's rules apply, and nothing errors. If you fork this plugin under a different name, update the qualifier in both `skills/*/SKILL.md` files.
+
 ## License
 
 MIT

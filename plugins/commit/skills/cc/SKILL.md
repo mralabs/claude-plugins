@@ -3,7 +3,7 @@ name: cc
 description: Alias for /commit — creates a conventional commit.
 disable-model-invocation: true
 context: fork
-agent: commit-writer
+agent: commit:commit-writer
 allowed-tools: ["Bash(git add:*)", "Bash(git commit:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git branch:*)", "Bash(git rev-parse:*)"]
 ---
 

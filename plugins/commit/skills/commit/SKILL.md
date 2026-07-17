@@ -3,7 +3,7 @@ name: commit
 description: Create a conventional commit. Analyzes the current working tree diff and creates a commit with a conventional commit message.
 disable-model-invocation: true
 context: fork
-agent: commit-writer
+agent: commit:commit-writer
 allowed-tools: ["Bash(git add:*)", "Bash(git commit:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git branch:*)", "Bash(git rev-parse:*)"]
 ---
 
