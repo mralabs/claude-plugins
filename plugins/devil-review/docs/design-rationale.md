@@ -61,3 +61,19 @@ When that evidence establishes a ship-blocker-class reachable correctness bug, f
 ### Saha-test-#2 origin
 
 This operationalizes the dampening the reviewer performed manually in saha test #2, where Round 2 correctly concluded "prior findings resolved, new findings introduced by fix or pre-existing — not a patch chain" and dampened away from `refactor-recommended`.
+
+## Severity floor for user-irrecoverable findings
+
+**Rule location**: `skills/devil-review/methodology.md` §Calibration rules → Severity floor for user-irrecoverable findings.
+
+### Saha-test-#4 origin
+
+Saha test #4 (cross-model adversarial comparison, 2026-04-26): devil-review correctly identified a permission-cache bug whose user impact was "can't recover until app restart" — verbatim from the finding text — but routed it to `considered_not_promoted` rather than promoting to `findings`. Codex (different model family, fresh perspective) flagged the same bug as no-ship. The promotion path filtered out a finding whose user-recovery cost was structurally above the noise threshold. Without a severity floor tied to recovery cost, the reviewer's calibration drifts on exactly the class of bug that should never ship. Full spec: `phase-3-plan.md` Item 15 (folded into v2.0.0; the spec's `severity_floor_applications` counter field was dropped per the schema-diet discipline — the `Recovery cost:` body line is the audit artifact).
+
+## Event-source upstream trace
+
+**Rule location**: `skills/devil-review/methodology.md` §Claim verification pass → step 6.
+
+### Saha-test-#4 origin
+
+Saha test #4: codex traced upstream into the backend (`status_service.rs`) to verify what the watched event source actually emitted under various conditions, including transient cases; devil-review stayed in the frontend diff slice and treated the event as a given. This was a methodology gap, not a model gap — no step said "if your finding involves an event handler, trace the source", so finding bodies asserted event semantics without verifying them. Full spec: `phase-3-plan.md` Item 17 (folded into v2.0.0; the spec's `event_sources_traced` counter field was dropped per the schema-diet discipline — the traced-emitter `producer:` body note is the audit artifact).

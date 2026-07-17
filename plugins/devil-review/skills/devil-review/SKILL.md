@@ -135,7 +135,7 @@ Where `<N>` is `5` for working-tree and branch modes, `10` for PR mode (PRs accu
 2. **Same-file hotspot.** A single reviewed file appears in ≥3 of the last 5 commits (working-tree / branch mode) or ≥5 of the last 10 commits (PR mode). File frequency alone is not enough without a defensive-prefix cluster, but combined with signal 1 it strengthens the signal — record both when both fire.
 3. **Prior-review overlap** (auto-detected — no flag required). Compute the **target slug** for the current review (see Step 8 for the slug rules) and resolve the prior-review path to `.claude/devil-review/${CLAUDE_SESSION_ID}/<target-slug>.md`. Session and target scoping ensure that stale reviews from unrelated sessions or different targets never bleed in. If the file exists, load it; extract its findings array and `considered_not_promoted` array via its JSON fence (treat the load as absent if no `schema_version` field is present, the file is malformed, or the file does not exist — emit the corresponding status per the observability rule below). If ≥50% of the current review's candidate findings reference file locations that also appeared in the prior review's findings or `considered_not_promoted`, the signal fires. Also cross-reference each current finding's `file:line` against the prior review's entries and annotate any overlaps in the finding body: "This location also appeared in the prior review as finding #N" — this annotation is body-only, not a new schema field.
 
-**Observability requirement.** The skill **must always** emit a `scenarios_considered` line of the form `prior-review ingestion: <status>` on every non-error run, where `<status>` is exactly one of `loaded`, `absent` (file does not exist — fresh run), `rejected-no-schema-version`, or `rejected-malformed-json`. This line makes the auto-detect outcome visible; silent drops are not permitted, and neither is silently running without a prior-check signal.
+**Observability requirement.** The skill **must always** emit one `scenarios_considered` line of the form `context: prior=<status> rejections=<status> rules=<n>` on every non-error run (schema v2.0 — this single line replaces the separate `prior-review ingestion:` and `rejection memory:` lines). `prior=` is exactly one of `loaded`, `absent` (file does not exist — fresh run), `rejected-no-schema-version`, or `rejected-malformed-json`; `rejections=` is exactly one of `loaded`, `absent`, or `rejected-malformed-json` (per `rejection-memory.md`); `rules=` is the count of project rule files loaded in Step 5.2b. This line makes the auto-detect outcomes visible; silent drops are not permitted.
 
 ### Prior-relation classification (schema v1.11+)
 
@@ -145,7 +145,7 @@ When Step 3b's `<status>` is `loaded`, the loaded prior review's findings feed t
 
 Rejection memory lets the reviewer avoid silently re-raising findings the user has already dismissed via `--reject`. The full mechanics — hash normalization (authoritative), `--reject` recording, file load, suppression vs. re-raise, and the chain-of-rejections verdict override — live in **`rejection-memory.md`** (sibling file in this skill directory). Load it now.
 
-Execute its **Phase A** (substeps 1–3) at this step: record any `--reject <CSV>` entries from Step 1 into `.claude/devil-review/${CLAUDE_SESSION_ID}/rejections.json`, then load the file into `trace_log.rejections_loaded`. Its **Phase B** (substeps 4–6: per-candidate suppression check, suppress-vs-re-raise judgment, chain-of-rejections override) runs later — after the Claim verification pass and before emit — NOT at this step; there are no candidate findings to match yet. Always emit the `scenarios_considered` line `rejection memory: <loaded | absent | rejected-malformed-json>` per the file's observability rule.
+Execute its **Phase A** (substeps 1–3) at this step: record any `--reject <CSV>` entries from Step 1 into `.claude/devil-review/${CLAUDE_SESSION_ID}/rejections.json`, then load the file into `trace_log.rejections_loaded` (present only when the file exists — schema v2.0). Its **Phase B** (substeps 4–6: per-candidate suppression check, suppress-vs-re-raise judgment, chain-of-rejections override) runs later — after the Claim verification pass and before emit — NOT at this step; there are no candidate findings to match yet. The load outcome feeds the `rejections=` slot of the `context:` observability line above.
 
 ### Theme-vs-root guard (reviewer-gated)
 
@@ -203,7 +203,7 @@ The findings cap still applies per group (see `methodology.md`).
    - At most **30 KB** total content across all loaded rule files combined. If a single file blows the budget, truncate at the end of the last complete top-level section (markdown `##` heading) before the cap.
    - Skip any file under `node_modules/`, `vendor/`, `.git/`, build output directories, or test fixtures. `domains/*.md` inside the devil-review plugin itself is **not** a project rule file — it ships with the skill.
 
-   **Record what was loaded** in `trace_log.project_rules_loaded` as entries of `{path, bytes}`. Empty array `[]` is valid when no rule file matched. **Absence of the field is a grounding failure** — the attempt must be visible.
+   **Record what was loaded** in `trace_log.project_rules_loaded` as entries of `{path, bytes}` whenever at least one rule file loaded; when none matched, omit the field — the attempt stays visible via the `rules=<n>` slot of the `context:` observability line (schema v2.0).
 
    **During finding generation** (Step 6), for each finding, attempt to cite applicable rule(s) from the loaded corpus. Each citation lives on the finding as an entry in `findings[].rule_refs` with three fields:
    - `source` — the path to the rule file
@@ -229,7 +229,7 @@ The findings cap still applies per group (see `methodology.md`).
 
    Match inclusively — when in doubt, load the checklist. The cost of loading an extra domain file is a few KB of context; the cost of missing one is a shipped bug. Under-matching is the failure mode to avoid.
 
-   **Classification must be recorded.** Fill in `trace_log.domains_loaded` with every domain you loaded, `trace_log.domains_considered_dropped` with any domain you considered but decided not to load (with a one-word reason), and `trace_log.classification_notes` with a one-sentence explanation of any ambiguous call (e.g., "`.tsx` file — loaded ui.md but not mobile.md because package.json does not depend on react-native"). See `output-schema.md`.
+   **Classification must be recorded.** Fill in `trace_log.domains_loaded` with every domain you loaded. For any genuinely ambiguous call, add a `scenarios_considered` line (e.g., `classification: .tsx — loaded ui.md not mobile.md, no react-native dependency`); straightforward loads need no line (schema v2.0 removed the dedicated `domains_considered_dropped` / `classification_notes` fields). See `output-schema.md`.
 
    If **no** domain matches, set `domains_loaded: []` and add a scenario `"generic attack surface only — no domain matched"`. Proceed with only the generic attack surface from `methodology.md`.
 
@@ -243,7 +243,7 @@ The findings cap still applies per group (see `methodology.md`).
 
 7. **LLM/agent output validation** — if the diff consumes structured data emitted by a language model, agent, ML pipeline, rule engine, or any other non-deterministic automation, audit every consumed field for consumer-side validation. Unvalidated fields that reach persistent state or user-visible action are findings; per the LLM-compliance severity floor in calibration rules, they start at **high** by default. Prompt-side constraints ("the prompt asks for backlog-only") are not consumer-side validation. See the "LLM/agent output validation" section in `methodology.md`. Record one line per consumed field under `scenarios_considered` in the form `llm-field: <name> — <validated|unvalidated|partial>`.
 
-8. **Acceptance criteria crosswalk** — if the pre-review context step (5.2) loaded a spec, RFC, task file, or any document with **structured acceptance criteria** (bulleted "must" statements, numbered requirements, definition-of-done checklist), walk the AC list top to bottom. For every AC, write down the specific file:line that implements it. Flag ACs that are unimplemented, ambiguously mapped, or contradicted — these are findings at **high** by default. Record the complete crosswalk (passing and failing ACs) in `trace_log.acceptance_criteria_crosswalk`. If the spec is prose-only with no structured ACs, skip this step and note it in `classification_notes`. See the "Acceptance criteria crosswalk" section in `methodology.md`.
+8. **Acceptance criteria crosswalk** — if the pre-review context step (5.2) loaded a spec, RFC, task file, or any document with **structured acceptance criteria** (bulleted "must" statements, numbered requirements, definition-of-done checklist), walk the AC list top to bottom. For every AC, write down the specific file:line that implements it. Flag ACs that are unimplemented, ambiguously mapped, or contradicted — these are findings at **high** by default. Record the complete crosswalk (passing and failing ACs) in `trace_log.acceptance_criteria_crosswalk`. If the spec is prose-only with no structured ACs, skip this step and note it as a `scenarios_considered` line. See the "Acceptance criteria crosswalk" section in `methodology.md`.
 
 9. **Test-trace** — every finding you plan to report must carry a test_coverage answer explaining why existing tests did not catch the bug, chosen from `no-test`, `mock-bypass`, or `missing-assertion`. If no answer is possible, the finding is invalid — re-read the tests or drop it. See the "Test-trace" section in `methodology.md`.
 
@@ -270,7 +270,7 @@ Do not proceed to Step 7 until you have:
 - answered the ship-blocker question (the answer is recorded in the Trace Log at emit)
 - traced consumers for every changed symbol
 - routed `FOCUS_TEXT` if present
-- run the **Claim verification pass** (five steps, including the step-5 evidence gate for cross-boundary external claims) on every candidate finding per `methodology.md`
+- run the **Claim verification pass** (six steps — step 5 is the evidence gate for cross-boundary external claims, step 6 the event-source upstream trace) on every candidate finding per `methodology.md`
 - applied the final_check to every candidate finding
 - dropped weak findings to fit the hard cap
 

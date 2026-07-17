@@ -26,15 +26,15 @@ Loose must-contain / must-NOT-contain assertions.
 - `trace_log.domains_loaded` contains `"data"` (possibly alongside `"api"`).
 - `trace_log.ship_blocker_answer: "yes"` — this is the canonical `block` pattern.
 - `trace_log.ship_blocker_reasoning` names the existing-rows-cannot-satisfy-NOT-NULL issue in one sentence.
-- `trace_log.classification_notes` explains data.md load based on `.sql` file and `migrations/` directory.
+- Domain classification is unambiguous (`.sql` + `migrations/` → data.md); no `classification:` scenario line is required (schema v2.0 — dedicated notes field removed).
 - `trace_log.symbols_inspected` contains the `User` type (consumers traced).
 - `trace_log.findings_dropped_in_verification` is **present** (schema v1.8 unconditional requirement). Empty `[]` or populated — both acceptable depending on whether the Claim verification pass narrowed/dropped any candidate claims during the review. Absence of the field is a regression.
-- `trace_log.project_rules_loaded` is **present** (schema v1.9 unconditional requirement). Empty `[]` is expected for this fixture since no rule files are set up; the field must be emitted regardless to prove Step 5.2b ran.
-- `trace_log.external_claims_verified` is **present** (schema v1.12 unconditional requirement). Expected value `0` — the NOT-NULL-on-existing-rows failure is a universally-known SQL semantics fact (not version/platform-dependent) and does not require an evidence source per the evidence gate's exclusion for well-established protocol consensus. Absence of the field is a regression. A non-zero value is acceptable only if the reviewer legitimately cited a Postgres-specific or MySQL-specific doc passage that the finding depends on; generic "SQL rejects NULL" citations are over-verification.
+- `trace_log.project_rules_loaded` is **absent** (schema v2.0 conditional — no rule files set up; `rules=0` in the `context:` line proves the attempt).
+- `trace_log.external_claims_verified` is **absent** (removed in schema v2.0). The NOT-NULL-on-existing-rows failure is universally-known SQL semantics and needs no `evidence_sources` entry per the evidence gate's protocol-consensus exclusion.
 - `findings[].evidence_sources` is **absent or empty `[]`** on the migration finding — the claim does not depend on version-specific external behavior. A populated array is not a regression per se, but expected to be absent given the finding's grounding in cross-vendor SQL semantics.
-- `trace_log.rejections_loaded` is **present and empty `[]`** (schema v1.14 unconditional requirement). No rejection file exists for this fixture; the empty array proves the load step ran. Absence of the field is a regression.
+- `trace_log.rejections_loaded` is **absent** (schema v2.0 conditional — omitted when no `rejections.json` exists).
 - `findings[].previously_rejected` is **absent** on the migration finding — fresh session, no prior rejection to match. The chain-of-rejections override (rule 0) cannot fire on this fixture because the resurface count is 0.
-- The `scenarios_considered` list contains the line `rejection memory: absent`.
+- The `scenarios_considered` list contains the single observability line `context: prior=absent rejections=absent rules=0` (schema v2.0).
 
 ### Decision block (schema v1.11)
 

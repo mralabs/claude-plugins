@@ -48,12 +48,12 @@ When `--reject` was NOT passed, substep 2 is a no-op.
 ### Substep 3 — Load the rejection file
 
 1. Use `Read` on `.claude/devil-review/${CLAUDE_SESSION_ID}/rejections.json`.
-   - If the file does not exist → emit `trace_log.rejections_loaded: []` (empty array). This is the canonical fresh-session state.
-   - If the file exists but fails to parse as JSON, lacks the `schema_version` field, has a `schema_version` value other than `"1.0"` or `"1.1"`, or lacks a `rejections` array, treat as malformed: emit `trace_log.rejections_loaded: []` and add a `scenarios_considered` line `rejection memory: rejected-malformed-json` so the rejected load is visible. Do not attempt suppression against a malformed file — findings flow through as if no rejection memory existed. (This path cannot fire when substep 2 ran successfully — substep 2's error handling rejects a malformed file before reaching the load step.)
+   - If the file does not exist → omit `trace_log.rejections_loaded` entirely (schema v2.0) and set `rejections=absent` in the `context:` observability line. This is the canonical fresh-session state.
+   - If the file exists but fails to parse as JSON, lacks the `schema_version` field, has a `schema_version` value other than `"1.0"` or `"1.1"`, or lacks a `rejections` array, treat as malformed: emit `trace_log.rejections_loaded: []` and set `rejections=rejected-malformed-json` in the `context:` line so the rejected load is visible. Do not attempt suppression against a malformed file — findings flow through as if no rejection memory existed. (This path cannot fire when substep 2 ran successfully — substep 2's error handling rejects a malformed file before reaching the load step.)
    - If the file parses and has `rejections: [...]` → **recompute** each entry's hash from its stored `file` and `title` per substep 1, then populate `trace_log.rejections_loaded` with one `{hash, rejected_at}` entry per rejection, using the recomputed hash. The stored `hash` field is audit metadata, not the matching key — recomputation is what lets `"1.0"`-era sidecar entries (hashes recorded under the old line-bearing normalization) keep matching under the current rule. Empty array is valid when the file is present but `rejections: []`.
 
 ---
 
 ## Substep 7 — Observability requirement (every non-error run)
 
-The skill must always emit a `scenarios_considered` line of the form `rejection memory: <status>` on every non-error run, where `<status>` is exactly one of `loaded` (file exists and parsed), `absent` (file does not exist — fresh session for this path), or `rejected-malformed-json`. Parallels the prior-review ingestion status line.
+The load outcome must always be visible in the `rejections=` slot of the single `context: prior=<...> rejections=<...> rules=<...>` observability line (SKILL.md Step 3b, schema v2.0), where the value is exactly one of `loaded` (file exists and parsed), `absent` (file does not exist — fresh session for this path), or `rejected-malformed-json`.

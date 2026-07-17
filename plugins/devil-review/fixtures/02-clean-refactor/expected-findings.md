@@ -16,14 +16,13 @@ Loose must-contain / must-NOT-contain assertions. This fixture tests the *absenc
 - `trace_log.ship_blocker_answer` is either omitted (allowed for `approve`) or emits `"no"` with matching reasoning.
 - `trace_log.symbols_inspected` is **non-empty** — `formatDate` (deleted), `formatDateISO` (added), and at least one consumer must be traced. Empty `symbols_inspected` on a non-trivial diff is a grounding failure even when the finding count is zero.
 - `trace_log.symbols_inspected` contains at least one entry with the `(deleted)` suffix on the name — deletions count as changes per output-schema rules.
-- `trace_log.classification_notes` is a non-empty sentence.
-- `trace_log.domains_loaded: []` or the single matched domain, with classification_notes explaining why.
+- `trace_log.domains_loaded: []` or the single matched domain; a genuinely ambiguous call is explained via a `classification:` scenario line (schema v2.0 — no dedicated field).
 - `trace_log.mutated_records_inspected` may be empty (no record writes in a rename), with `"no record writes in diff"` recorded as a scenario line.
 - `trace_log.findings_dropped_in_verification` is **present and empty** (`[]`). On a clean-refactor fixture no candidate findings exist in the first place, so the Claim verification pass has nothing to drop or narrow — but the field must still be emitted to prove the pass was run (per schema v1.8). Absence of the field is a regression signal.
-- `trace_log.project_rules_loaded` is **present**. Empty array `[]` is expected (no rule files in this fixture's scratch setup), but the field itself must be emitted to prove Step 5.2b ran (per schema v1.9). Absence of the field is a regression signal.
-- `trace_log.external_claims_verified` is **present** and equals `0` (schema v1.12 unconditional requirement). No findings → no external claims → no verification actions. Absence of the field is a regression signal; a non-zero value on a zero-findings fixture would indicate performative external research unrelated to any emitted finding, which violates the evidence-gate counting rule (the counter tracks verification actions tied to load-bearing claims, not incidental fetches).
-- `trace_log.rejections_loaded` is **present and empty `[]`** (schema v1.14 unconditional requirement). No rejection file exists in this fixture's scratch setup; the empty array confirms the load step ran and found nothing. Absence of the field is a regression signal. A populated array on a fixture with no rejection file indicates the reviewer fabricated rejection entries, which is a grounding failure.
-- The `scenarios_considered` list contains the line `rejection memory: absent` (schema v1.14 observability requirement — parallels the prior-review ingestion line).
+- `trace_log.project_rules_loaded` is **absent** (schema v2.0 conditional — no rule files in this fixture's scratch setup; the Step 5.2b attempt is proven by `rules=0` in the `context:` line).
+- `trace_log.external_claims_verified` is **absent** (removed in schema v2.0).
+- `trace_log.rejections_loaded` is **absent** (schema v2.0 conditional — omitted when no `rejections.json` exists). A populated array on a fixture with no rejection file indicates fabricated rejection entries, a grounding failure.
+- The `scenarios_considered` list contains the single observability line `context: prior=absent rejections=absent rules=0` (schema v2.0).
 
 ### Decision block (schema v1.11)
 
