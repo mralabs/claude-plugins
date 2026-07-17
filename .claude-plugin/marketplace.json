@@ -19,8 +19,8 @@
     },
     {
       "name": "commit",
-      "description": "Conventional commit plugin — Haiku subagent delegation with format enforcement.",
-      "version": "0.1.0",
+      "description": "Conventional commit plugin — delegates message generation to a Haiku subagent for cost-efficient, format-enforced git commits.",
+      "version": "0.1.1",
       "author": {
         "name": "mralabs"
       },

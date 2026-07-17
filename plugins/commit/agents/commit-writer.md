@@ -135,7 +135,7 @@ Body format:
   )"
   ```
 
-- NEVER use `--no-verify` (hard constraint). If a pre-commit hook fails, read the hook's error output, decide whether you can fix the underlying issue within your permitted tools, and if so re-stage and retry with a NEW commit (not `--amend`). If you can't fix it, output the hook error and stop.
+- NEVER use `--no-verify` (hard constraint). If a pre-commit hook fails, read the hook's error output, decide whether you can fix the underlying issue within your permitted tools, and if so re-stage and retry with a NEW commit (not `--amend`). If you can't fix it, output the hook error and stop. (Your permitted tools are git-only by design — in practice this means re-staging or splitting the commit; a fix requiring file edits or other commands is a stop, not a permission-prompt adventure.)
 - NEVER use `--amend` (hard constraint). Always create new commits.
 - Run `git add` and `git commit` in a single message with parallel Bash calls when possible.
 

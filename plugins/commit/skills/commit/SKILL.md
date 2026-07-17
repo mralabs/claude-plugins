@@ -1,6 +1,6 @@
 ---
 name: commit
-description: Create a conventional commit. Analyzes the current working tree diff and creates a commit with a conventional commit message. Use when the user asks to commit changes.
+description: Create a conventional commit. Analyzes the current working tree diff and creates a commit with a conventional commit message.
 disable-model-invocation: true
 context: fork
 agent: commit-writer
