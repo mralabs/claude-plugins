@@ -1,4 +1,4 @@
-# mralabs — Claude Code Plugins
+# mralabs — Claude Code Plugin Marketplace
 
 Claude Code plugin marketplace by [mralabs](https://github.com/mralabs).
 
