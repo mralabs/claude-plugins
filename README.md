@@ -10,8 +10,8 @@ Claude Code plugin marketplace by [mralabs](https://github.com/mralabs).
 
 # Install plugins you want
 /plugin install devil-review@mralabs
-/plugin install commit@mralabs
 /plugin install radar@mralabs
+/plugin install commit@mralabs
 ```
 
 ## Plugins
@@ -34,20 +34,6 @@ Adversarial code review that finds the subtle bugs, race conditions, and violate
 
 [Full documentation](plugins/devil-review/)
 
-### commit
-
-> *Fast conventional commits via Haiku delegation.*
-
-Delegates commit message generation to a dedicated Haiku subagent running in a forked context, so the main conversation stays clean and the token cost stays low. Enforces the 11 Angular-convention commit types, respects repo-specific commit formats defined in `CLAUDE.md`, and refuses to commit files that look like secrets.
-
-```bash
-/commit                    # long form
-/cc                        # short alias — same behavior
-/cc fix typo in readme     # optional hint — subagent still decides from diff
-```
-
-[Full documentation](plugins/commit/)
-
 ### radar
 
 > *Release radar for your repo.*
@@ -63,6 +49,20 @@ Track competitors, upstream tools and dependencies — release tracking for chan
 ```
 
 [Full documentation](https://github.com/mralabs/radar)
+
+### commit
+
+> *Fast conventional commits via Haiku delegation.*
+
+Delegates commit message generation to a dedicated Haiku subagent running in a forked context, so the main conversation stays clean and the token cost stays low. Enforces the 11 Angular-convention commit types, respects repo-specific commit formats defined in `CLAUDE.md`, and refuses to commit files that look like secrets.
+
+```bash
+/commit                    # long form
+/cc                        # short alias — same behavior
+/cc fix typo in readme     # optional hint — subagent still decides from diff
+```
+
+[Full documentation](plugins/commit/)
 
 ## License
 
