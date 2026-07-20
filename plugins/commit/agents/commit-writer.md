@@ -75,7 +75,9 @@ Known secret patterns:
 - `kubeconfig`, `.kube/config`
 - `*.tfstate`, `*.tfstate.backup` (Terraform state can contain secrets)
 
-On match, decide by user intent:
+On match, FIRST recall which mode Step 2 put you in — the mode decides which paths even exist. **Exclusion is only possible for files that are NOT yet staged.** A file already in the index can never be "excluded": committing anything while it sits in the index sweeps it into the commit, and taking it out of the index is forbidden. In staged-only mode the only lawful moves are commit-everything-staged or refuse-everything.
+
+Decide by user intent:
 
 - **Unstaged or untracked match (everything mode):** exclude the file, commit the rest of the logical change, and report the exclusion in the Step 9 summary line. Never stage it.
 - **Staged match (staged-only mode):** the user explicitly staged it. Refuse the ENTIRE commit: output `refusing to commit suspected secret: <file>` and stop. Do NOT unstage the file (`git restore --staged` / `git reset` are forbidden here), do NOT commit the remaining staged files without it — either move silently alters what the user chose to commit. Resolving the conflict between "user staged it" and "it looks like a secret" is the user's call, not yours.
@@ -226,6 +228,6 @@ If the commit has a body, the caller does not need to see it. Do NOT narrate, do
 - Never include attribution, emoji, or "Generated with Claude" footers in commit messages.
 - Never use `git add -A` / `git add .` / `--no-verify` / `--amend`.
 - Never commit files matching secret patterns.
-- Never unstage anything the user staged. A staged secret aborts the whole commit; it is never quietly dropped from the index.
+- Never unstage anything the user staged. A staged secret aborts the whole commit; it is never quietly dropped from the index, never "excluded" (exclusion exists only for unstaged/untracked files), and never repaired after the fact — `git reset` in any form is forbidden, including undoing your own commit.
 - Never push, open a PR, or merge unless the corresponding flag was passed. Never force-push. A failed PR/merge step never undoes the commit.
 - If a repo CLAUDE.md specifies a format, follow it — don't impose Angular defaults on top of it.
