@@ -1,6 +1,6 @@
 {
   "name": "commit",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "license": "MIT",
   "description": "Conventional commit plugin — delegates message generation to a Haiku subagent for cost-efficient, format-enforced git commits.",
   "author": {

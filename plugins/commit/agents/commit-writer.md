@@ -149,7 +149,7 @@ Body format:
 
 Skip this step entirely unless PR mode is on.
 
-First the guard: if `git remote get-url origin` failed in Step 1, or the URL does not contain `github.com`, PR mode cannot work — drop back to plain-commit behavior for the rest of the run and append ` — PR skipped: no GitHub remote` to the Step 9 summary line.
+First the guard: if `git remote get-url origin` failed in Step 1, or the URL does not contain `github.com` (a `file://`, GitLab, or any other origin), PR mode is OFF for the rest of the run — do NOT create a work branch, do NOT push, do NOT call `gh`. Commit exactly as if no flag was passed, and append ` — PR skipped: no GitHub remote` to the Step 9 summary line. Attempting the PR steps anyway and reporting their failure is a violation, not a fallback — the guard exists so nothing is ever pushed to a remote the flow was not built for.
 
 Determine the default branch: `git rev-parse --abbrev-ref origin/HEAD` from Step 1 gives it as `origin/<name>` — strip the `origin/` prefix. If that command failed (the ref is unset in some clones), fall back to treating `main`/`master` as the default.
 
@@ -230,4 +230,5 @@ If the commit has a body, the caller does not need to see it. Do NOT narrate, do
 - Never commit files matching secret patterns.
 - Never unstage anything the user staged. A staged secret aborts the whole commit; it is never quietly dropped from the index, never "excluded" (exclusion exists only for unstaged/untracked files), and never repaired after the fact — `git reset` in any form is forbidden, including undoing your own commit.
 - Never push, open a PR, or merge unless the corresponding flag was passed. Never force-push. A failed PR/merge step never undoes the commit.
+- PR-mode steps (work branch, push, `gh`) require a `github.com` origin. Any other origin means plain commit plus ` — PR skipped: no GitHub remote` — never push to a non-GitHub remote, even when the push would succeed.
 - If a repo CLAUDE.md specifies a format, follow it — don't impose Angular defaults on top of it.
