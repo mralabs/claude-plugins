@@ -118,8 +118,9 @@ When making non-trivial changes to methodology, schemas, or domain checklists:
 
 1. Draft the change.
 2. **Apply the plugin's own methodology to its own diff** before committing. For devil-review, this means running the generalization test, mutation fanout trace, runtime contract verification, and test-trace on the doc changes themselves.
-3. Roll any self-review findings into the same commit under a clearly labeled "Self-review fixes rolled into this commit" section in the body.
-4. Do NOT create a separate "v1.X.Y" + "v1.X.Y+1 self-review patch" sequence unless the self-review was done by a different reviewer or discovered issues after the fact.
+3. **Run the guarded-prose evals** when the change touches prose an `evals/` case guards (see the table in `evals/README.md`) — before presenting the diff for commit, with the scores included in the review. Self-review catches logic errors; evals catch stochastic rule-following failures that reading cannot see (learned 2026-07-20: two real Haiku rule-drift bugs — v0.4.1 staged-secret exclusion, v0.4.2 non-GitHub guard — passed careful self-review and were caught only by the eval suite). New prose rules ship with a new eval case guarding them, not as an afterthought. Heed the sandbox-escape hazard note in `evals/README.md`: clean committed tree before batches, `git log` + `git branch -a` check after.
+4. Roll any self-review findings into the same commit under a clearly labeled "Self-review fixes rolled into this commit" section in the body.
+5. Do NOT create a separate "v1.X.Y" + "v1.X.Y+1 self-review patch" sequence unless the self-review was done by a different reviewer or discovered issues after the fact.
 
 This is a learned practice: every release in this repo so far has benefited from applying the plugin's rules to its own changes before shipping.
 
