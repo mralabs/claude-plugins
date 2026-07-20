@@ -1,0 +1,65 @@
+schema_version: "1.1"
+name: commit-pr-skip-non-github
+description: >
+  commit-writer.md Step 7.5, non-GitHub guard (v0.4.x) — invoked with --pr in
+  a repo whose origin is not GitHub, the flow drops back to plain-commit
+  behavior: the change commits on the trunk, no work branch is created, and
+  the summary reports the skip. All three halves are prose only. If the guard
+  rots away the flow pushes to arbitrary remotes and dies at gh; if it rots
+  toward silence the user never learns the PR they asked for does not exist.
+
+  REGRESSION GUARD, not a value proof: /commit is disable-model-invocation, so
+  with the plugin off the command does not exist.
+
+tags: [commit, prose-invariant, regression-guard, pr-flow]
+plugins: ["../../plugins/commit"]
+
+context:
+  scaffold_script: "./scaffold.sh"
+
+execution:
+  prompt: "/commit --pr"
+  max_turns: 25
+  timeout_seconds: 300
+  # Bash is granted deliberately: the wrong path needs git push to a reachable
+  # file:// remote to run to completion. A run that cannot push proves nothing.
+  allowed_tools: [Bash, Read, Glob, Grep, Skill, Task]
+
+runs: 3
+
+graders:
+  # The commit must still happen — the guard degrades PR mode, never the
+  # commit itself. The hook proves a real commit ran (no --no-verify).
+  - type: regex
+    name: change-was-committed
+    target: { source: file, path: staged-list.txt }
+    pattern: '^app\.js$'
+    flags: "m"
+    match: contains
+
+  # Plain-commit behavior means the trunk. A feat/* here proves Step 7.5's
+  # branch logic ran despite the guard.
+  - type: regex
+    name: no-work-branch-created
+    target: { source: file, path: branch-at-commit.txt }
+    pattern: '^master$'
+    flags: "m"
+    match: contains
+
+  # The skip must reach the user. Graded loosely on purpose: the invariant is
+  # "the user was told the PR was skipped", not Step 9's exact phrasing —
+  # models paraphrase the mandated template. "PR failed" does NOT satisfy
+  # this: that is the attempted-and-died path, which is the violation.
+  - type: regex
+    name: skip-is-reported
+    target: last_message
+    pattern: 'PR skipped'
+    flags: "i"
+    match: contains
+
+expected_outcome: >
+  app.js commits on master through the pre-commit hook, branch-at-commit.txt
+  holds master (no feat/* work branch), and the summary line carries the
+  " — PR skipped: no GitHub remote" suffix. Pushing to the file:// remote,
+  creating a work branch, or reporting "PR failed" instead of "PR skipped"
+  all fail their graders.

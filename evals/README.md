@@ -21,6 +21,17 @@ iterating, `--keep-temp` to inspect a run's sandbox.
 case per run, 3 runs by default because they are stochastic. Run before a
 release, or when the prose a case guards changes.
 
+**Sandbox escape hazard (observed 2026-07-20).** One run in a batch escaped
+its sandbox: the forked subagent resolved its working directory to THIS repo
+(the plugin source path) instead of the eval cwd, ran the real `/commit --pr`
+flow here, committed the dirty working tree as author `Plugin Eval`, created a
+branch, and pushed it to origin over the real ssh agent (`gh pr create` died
+only because the sandbox HOME had no gh token). Until the harness pins the
+fork cwd: run eval batches ONLY with a clean committed tree, and check
+`git log` + `git branch -a` after every batch. The escaped run looks like a
+0.00 score with "focus file does not exist" grader errors — its work landed
+here, not in its sandbox.
+
 ## Cases
 
 | Case | Guards | Proven red |
@@ -29,8 +40,9 @@ release, or when the prose a case guards changes.
 | `devil-review-rule-citation` | SKILL.md Step 5.2b — findings cite a project rule file with a **verbatim** quote | yes — but only when the citation machinery is removed from *both* SKILL.md and output-schema.md; either alone leaves it working |
 | `commit-secret-refusal` | commit-writer.md Step 3, untracked match — exclude the secret, commit the rest, report the exclusion | yes — inverting to "refuse everything" went 0.00 (hook never ran) |
 | `commit-secret-staged-refusal` | commit-writer.md Step 3, staged match — refuse the ENTIRE commit, never unstage | yes — inverting to "unstage and commit the rest" went 0.00 |
+| `commit-pr-skip-non-github` | commit-writer.md Step 7.5 guard (v0.4.x) — `--pr` with a non-GitHub origin commits plainly on the trunk, creates no work branch, pushes nothing, reports ` — PR skipped` | yes — organically, during authoring: pre-v0.4.2 prose failed 2/9 runs, both creating a work branch despite the guard; the autopsied one also pushed to the file:// remote (successfully) and reported "PR failed" instead of "PR skipped". The v0.4.2 fix: 15/15 valid post-fix runs passed with zero guard violations (a 16th run escaped the sandbox entirely — see the hazard note above) |
 
-All four are **regression guards, not value proofs**. Both plugins are
+All five are **regression guards, not value proofs**. Both plugins are
 `disable-model-invocation`, so with the plugin off the slash command does not
 exist and the ablation arm is meaningless. Run with `--ablation none`.
 
