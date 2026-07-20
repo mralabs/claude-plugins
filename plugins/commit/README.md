@@ -12,15 +12,31 @@ Writing a commit message is a small, structured task — classify the diff, pick
 /commit                    # long form
 /cc                        # short alias — same behavior
 /cc fix the login bug      # optional hint — subagent still decides from the diff
+/cc --pr                   # commit, push, open a PR (branch auto-created if on default branch)
+/cc --merge                # everything --pr does, then squash-merge + branch cleanup
+/cc --m                    # short for --merge (also: --prm, --pr --m)
 ```
 
 Both commands do exactly the same thing. Pick whichever your fingers prefer.
+
+## PR mode (`--pr` / `--merge`)
+
+Default behavior is unchanged — no flags, plain commit. The flags opt in to a solo-dev PR flow:
+
+- **`--pr`**: after committing, push the branch and `gh pr create --fill` — the PR title and body come straight from the commit message, so a rich commit body becomes a rich PR body for free.
+- **`--merge`** (aliases `--m`, `--prm`): everything `--pr` does, then `gh pr merge --squash --delete-branch` and a `git pull --ff-only` — you end up back on an up-to-date default branch with the work branch gone. One command: change on main → documented PR → merged.
+
+Branch logic: on a trunk branch — the repo's default branch (read from `origin/HEAD`, so a `dev`-default repo works too), or `main`/`master` even when they're not the default — a work branch is derived from the commit subject (`feat/add-oauth-callback-handler`) and created automatically; trunks are never used as PR source branches. On any other branch, that branch is used as-is (an existing open PR for it is updated, not duplicated).
+
+Unpushed commits already on the trunk ride into the PR (the work branch is cut at HEAD — they're unmerged work and inseparable from the new commit). After a squash merge that leaves the local trunk diverged; the flow reports it and leaves the resolution to you — it never resets anything.
+
+Guards: no GitHub remote → the PR steps are skipped and the summary says so; a failed push/PR/merge never undoes the commit — the commit stands and the failure is reported in the summary line. Never force-pushes. Note: `--merge` merges your own PR immediately, so it can't coexist with branch protection rules that require reviews.
 
 ## How it works
 
 1. **Delegates to a forked Haiku subagent** — the skill runs `context: fork` into the `commit-writer` subagent (`model: haiku`, `tools: Bash`). The fork has its own context window, so the full `git diff HEAD` stays out of your main conversation.
 2. **Checks for repo-specific commit conventions** — reads any `CLAUDE.md` loaded into context for a "Commit message format" section. Repo rules override the Angular defaults (see below).
-3. **Probes diff size before pulling content** — `git status --short`, `git diff HEAD --stat`, `git log --oneline -10` in parallel; pulls the full diff only when it's small, targeted per-file diffs otherwise (lockfiles and generated files are classified from the stat alone, so a huge lockfile churn can't blow the fork's context either).
+3. **Probes diff size before pulling content** — sanity checks plus `git status --porcelain`, `git diff HEAD --stat`, `git log --oneline -10`, branch and remote info all in one parallel batch; pulls the full diff only when it's small, targeted per-file diffs otherwise (lockfiles and generated files are classified from the stat alone, so a huge lockfile churn can't blow the fork's context either).
 4. **Respects partial staging** — if you already staged files deliberately, it commits only what's staged and leaves everything else alone.
 5. **Reads untracked files before committing them** — via `git diff --no-index /dev/null <file>`; nothing is committed sight-unseen.
 6. **Scans for secrets** — checks files against `.env`, `.env.*`, `credentials.json`, `*.pem`, `*.key`, and similar patterns, plus blatant embedded secrets in content it reads (private key blocks, AWS access keys). What blocks is a secret's path *into the commit*: an unrelated untracked match is excluded (and the exclusion reported in the summary line) while the rest of the change commits normally; a match you explicitly *staged* — or a secret embedded in a file's content — aborts the whole commit.
@@ -29,7 +45,8 @@ Both commands do exactly the same thing. Pick whichever your fingers prefer.
 9. **Writes the subject** — `type(scope?): imperative-lowercase-summary`, max 72 chars, no emoji, no attribution.
 10. **Stages files individually** — `git add <file>` per file, never `git add -A` or `git add .`.
 11. **Commits via HEREDOC** — multi-line body-safe, hooks honored (never `--no-verify`, never `--amend`).
-12. **Returns a one-line summary** — `<short-hash> <type>(<scope>): <subject>` to the main conversation.
+12. **PR mode (opt-in)** — with `--pr`/`--merge`, pushes and opens a PR via `gh pr create --fill` (and squash-merges with `--merge`); see the PR mode section above.
+13. **Returns a one-line summary** — `<short-hash> <type>(<scope>): <subject>` to the main conversation, with ` — PR <url>` / ` — PR <url> merged` appended in PR mode.
 
 The `/cc fix the login bug` hint form feeds the hint to the subagent as intent context — it shapes classification and wording, but if it conflicts with what the diff shows, the diff wins.
 
@@ -74,7 +91,7 @@ This means the same `/cc` command adapts per repo — no configuration needed.
 - Use `--no-verify` or skip pre-commit hooks (surfaces hook errors)
 - Use `--amend` (always creates new commits)
 - Add attribution, emoji, or "Generated with Claude" footers
-- Push or open a PR (commit only — push separately if needed)
+- Push, open a PR, or merge unless you pass `--pr`/`--merge` (default stays commit-only; never force-pushes)
 
 ## Why fork to a Haiku subagent?
 

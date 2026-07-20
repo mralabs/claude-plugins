@@ -21,23 +21,37 @@ If the repo has its own format, apply it. The Angular rules below are the fallba
 
 **Note:** This step relies on the repo's `CLAUDE.md` being loaded into your context, which happens automatically when you are invoked via a skill `context: fork` (the normal `/commit` and `/cc` flow). If you are ever invoked directly via the Agent tool without fork, `CLAUDE.md` will not be in your context and this step finds nothing — fall through to the Angular defaults below.
 
-## Step 1 — Sanity checks
+## Step 0.5 — Parse flags from the arguments
 
-Run `git rev-parse --is-inside-work-tree`. If it fails, output `not a git repo — aborted` and stop.
+The invocation arguments may mix a free-text hint with flags. Recognized flags (strip them from the hint before Step 2.5):
 
-Run `git status --porcelain`. If there are zero changes (no staged, no unstaged, no untracked), output `no changes — aborted` and stop.
+- `--pr` → **PR mode**: after committing, push the branch and open a pull request.
+- `--merge`, `--m`, `--prm` → **PR mode + merge**: everything `--pr` does, then squash-merge the PR and clean up. Merge implies PR — `--pr` alongside is accepted but redundant.
 
-## Step 2 — Gather context (parallel Bash calls)
+No flags → plain commit, exactly as before. Unrecognized `--words` are treated as hint text, not flags.
 
-Run these in a single message with parallel Bash calls:
+## Step 1 — Sanity checks + context gather (one parallel batch)
 
-- `git status --short`
+Run ALL of these in a single message with parallel Bash calls — one round trip, not two:
+
+- `git rev-parse --is-inside-work-tree`
+- `git status --porcelain`
 - `git diff HEAD --stat`
 - `git log --oneline -10`
+- `git branch --show-current`
+- `git remote get-url origin` (may fail — tolerate; only PR mode uses it)
+- `git rev-parse --abbrev-ref origin/HEAD` (may fail — tolerate; only PR mode uses it, to learn the default branch)
 
-Then decide what full diff content to pull:
+Abort rules, checked from the batch results:
 
-- **Staged-only mode:** if the index already has staged changes (any `git status --short` line whose FIRST column is a letter — not a space and not `?`), the user staged deliberately. Read `git diff --cached`, commit ONLY what is staged, and leave unstaged/untracked files untouched (skip the staging half of Step 8). The large-diff rule below applies here too, with `--cached` in place of `HEAD`.
+- `git rev-parse --is-inside-work-tree` failed (the other git commands will have failed too; a failed `origin/HEAD` rev-parse alone is NOT an abort — it is tolerated) → output `not a git repo — aborted` and stop.
+- `git status --porcelain` empty (no staged, no unstaged, no untracked) → output `no changes — aborted` and stop.
+
+## Step 2 — Pull diff content
+
+Decide what full diff content to pull:
+
+- **Staged-only mode:** if the index already has staged changes (any `git status --porcelain` line whose FIRST column is a letter — not a space and not `?`), the user staged deliberately. Read `git diff --cached`, commit ONLY what is staged, and leave unstaged/untracked files untouched (skip the staging half of Step 8). The large-diff rule below applies here too, with `--cached` in place of `HEAD`.
 - **Everything mode (no pre-staged changes):** if the stat is small (roughly under a few hundred changed lines across under ~20 files), pull the full `git diff HEAD`. If it is large, do NOT pull the full diff — read targeted `git diff HEAD -- <file>` for the meaningful files, and classify lockfiles (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `*.lock`), vendored, and generated files from the stat line alone.
 - **Untracked files** never appear in `git diff HEAD`. Read each untracked candidate's content with `git diff --no-index /dev/null <file>` (exits non-zero when the file has content — that is expected, use the output). Never commit a file whose content you have not seen.
 
@@ -129,6 +143,23 @@ Body format:
 - Wrap at ~72 chars
 - Focus on WHY, not WHAT
 
+## Step 7.5 — PR mode: ensure a branch (before staging)
+
+Skip this step entirely unless PR mode is on.
+
+First the guard: if `git remote get-url origin` failed in Step 1, or the URL does not contain `github.com`, PR mode cannot work — drop back to plain-commit behavior for the rest of the run and append ` — PR skipped: no GitHub remote` to the Step 9 summary line.
+
+Determine the default branch: `git rev-parse --abbrev-ref origin/HEAD` from Step 1 gives it as `origin/<name>` — strip the `origin/` prefix. If that command failed (the ref is unset in some clones), fall back to treating `main`/`master` as the default.
+
+Then look at `git branch --show-current` from Step 1:
+
+- **On a trunk branch** — the default branch, or `main`/`master` even when a different branch is the default (trunks are never PR work branches; committing on them and opening a PR *from* them is always wrong): create a work branch now, BEFORE staging — `git checkout -b <type>/<slug>` where `<slug>` is the subject line after the colon, lowercased, non-alphanumerics collapsed to hyphens, trimmed to the first few words (subject `add OAuth callback handler` → branch `feat/add-oauth-callback-handler`). If the branch already exists, append `-2` (then `-3`, …). Staged and working-tree changes carry over to the new branch automatically.
+- **On any other branch:** use it as-is — no new branch. The user chose that branch deliberately; the PR opens from it.
+
+The work branch is cut at HEAD, so any unpushed local commits already sitting on the trunk ride into the PR too. This is correct — they are unmerged work and the new commit cannot be pushed without them — but it affects the merge step; see Step 8.5.
+
+If the run aborts after this step created a branch (e.g. an unfixable pre-commit hook failure in Step 8), append ` — left on branch <name>` to the error line so the user is never silently moved off the default branch.
+
 ## Step 8 — Stage and commit
 
 **Staging rules:**
@@ -155,6 +186,18 @@ Body format:
 - NEVER use `--amend` (hard constraint). Always create new commits.
 - Run `git add` and `git commit` in a single message with parallel Bash calls when possible.
 
+## Step 8.5 — PR mode: push, open PR, optionally merge
+
+Skip this step entirely unless PR mode is on and was not dropped in Step 7.5.
+
+1. `git push -u origin HEAD`
+2. `gh pr create --fill` — title and body come straight from the commit message. If this fails because a PR already exists for the branch, that is fine — the push above already updated it; grab the URL with `gh pr view --json url -q .url` and continue.
+3. **Merge mode only:** `gh pr merge --squash --delete-branch` — squash keeps the default branch at one commit per change; `--delete-branch` removes the remote and local branch and checks the default branch back out. Then run `git pull --ff-only` so the local default branch picks up the squash commit — without this the next invocation starts from a stale base.
+
+   If `git pull --ff-only` fails, the usual cause is the Step 7.5 note: the local trunk carried unpushed commits that the remote now holds as one squash commit, so the histories diverged. Do NOTHING destructive — no reset, no force-anything. Append ` — merged; local <default> diverged (had unpushed commits), resolve manually` to the summary line and stop. The merge itself succeeded; only the local sync is the user's call.
+
+If any of these commands fails (gh not authenticated, network down, branch protection), do NOT retry and do NOT undo the commit — the commit is valid on its own. Append the failure to the summary line: ` — PR failed: <one-line reason>` (or ` — merge failed: <reason>`, leaving the PR open).
+
 ## Step 9 — Return summary
 
 Take the short hash from the `git commit` output (or run `git rev-parse --short HEAD`). Output exactly one line to the parent conversation:
@@ -167,6 +210,12 @@ Example: `a1b2c3d feat(auth): add OAuth callback handler`
 
 If Step 3 excluded any suspected secret file, append exactly ` — excluded suspected secret: <file>` (repeat per file) to that line so the exclusion is never silent. Example: `a1b2c3d feat(auth): add OAuth callback handler — excluded suspected secret: .env`
 
+PR mode appends to that same single line:
+
+- PR opened: ` — PR <url>`
+- PR merged: ` — PR <url> merged`
+- Skipped or failed: the ` — PR skipped: ...` / ` — PR failed: ...` / ` — merge failed: ...` / ` — merged; local <default> diverged ...` / ` — left on branch <name>` suffixes from Steps 7.5/8.5.
+
 If the commit has a body, the caller does not need to see it. Do NOT narrate, do NOT explain, do NOT ask questions. One line.
 
 ## Absolute constraints
@@ -178,4 +227,5 @@ If the commit has a body, the caller does not need to see it. Do NOT narrate, do
 - Never use `git add -A` / `git add .` / `--no-verify` / `--amend`.
 - Never commit files matching secret patterns.
 - Never unstage anything the user staged. A staged secret aborts the whole commit; it is never quietly dropped from the index.
+- Never push, open a PR, or merge unless the corresponding flag was passed. Never force-push. A failed PR/merge step never undoes the commit.
 - If a repo CLAUDE.md specifies a format, follow it — don't impose Angular defaults on top of it.

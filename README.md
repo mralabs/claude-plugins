@@ -54,12 +54,14 @@ Track competitors, upstream tools and dependencies — release tracking for chan
 
 > *Fast conventional commits via Haiku delegation.*
 
-Delegates commit message generation to a dedicated Haiku subagent running in a forked context, so the main conversation stays clean and the token cost stays low. Enforces the 11 Angular-convention commit types, respects repo-specific commit formats defined in `CLAUDE.md`, and refuses to commit files that look like secrets.
+Delegates commit message generation to a dedicated Haiku subagent running in a forked context, so the main conversation stays clean and the token cost stays low. Enforces the 11 Angular-convention commit types, respects repo-specific commit formats defined in `CLAUDE.md`, and refuses to commit files that look like secrets. Opt-in PR flow for solo work: commit → push → PR → squash merge in one command.
 
 ```bash
 /commit                    # long form
 /cc                        # short alias — same behavior
 /cc fix typo in readme     # optional hint — subagent still decides from diff
+/cc --pr                   # commit, push, open a PR (branch auto-created on default branch)
+/cc --merge                # --pr + squash merge + branch cleanup (also: --m, --prm)
 ```
 
 [Full documentation](plugins/commit/)
