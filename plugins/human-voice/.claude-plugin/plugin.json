@@ -1,0 +1,10 @@
+{
+  "name": "human-voice",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Ghostwriting style guard — loaded before drafting any text sent in the user's name, so it doesn't read as AI-written.",
+  "author": {
+    "name": "mralabs",
+    "url": "https://github.com/mralabs"
+  }
+}

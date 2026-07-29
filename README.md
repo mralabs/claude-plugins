@@ -12,6 +12,7 @@ Claude Code plugin marketplace by [mralabs](https://github.com/mralabs).
 /plugin install devil-review@mralabs
 /plugin install radar@mralabs
 /plugin install commit@mralabs
+/plugin install human-voice@mralabs
 ```
 
 ## Plugins
@@ -65,6 +66,14 @@ Delegates commit message generation to a dedicated Haiku subagent running in a f
 ```
 
 [Full documentation](plugins/commit/)
+
+### human-voice
+
+> *Ghostwriting that doesn't read as AI.*
+
+Style guard loaded before drafting any text sent in the user's name — emails, PR descriptions, issue/review comments, chat messages. A compact rule sheet distilled from [Wikipedia:Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing), plus ghostwriting-specific tone/register/no-fabrication rules. Applies in whatever language the text is written. No slash command — the skill is model-invoked when Claude is about to write as you; pair it with a `CLAUDE.md` directive for guaranteed loading.
+
+[Full documentation](plugins/human-voice/)
 
 ## License
 
