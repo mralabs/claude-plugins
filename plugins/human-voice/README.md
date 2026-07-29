@@ -18,7 +18,17 @@ The skill is a compact rule sheet distilled from [Wikipedia:Signs of AI writing]
 
 ## Usage
 
-Install via the mralabs marketplace, then reference it from your global `CLAUDE.md`:
+Two ways to use it:
+
+**On demand** — like any skill, it's also a slash command. Invoke it with text (or a request) and the rules apply to what Claude writes next:
+
+```
+/human-voice reply to this email: <paste>
+/human-voice rewrite this sentence so it doesn't sound AI-written: <sentence>
+/human-voice draft a PR description for this branch
+```
+
+**Automatic** — install via the mralabs marketplace, then reference it from your global `CLAUDE.md`:
 
 ```markdown
 Before drafting ANY text that will be sent or published as me — emails, PR
