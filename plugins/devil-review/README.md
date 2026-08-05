@@ -273,6 +273,10 @@ New domain checklists can be added under `domains/` by extending the routing tab
 
 **Same-model-family blindspot.** When the implementation and the review both run on the same model family, patterns the model considers acceptable pass through both unchallenged. Observed in a cross-model field test (saha test #4): a different-family reviewer flagged severity on a bug devil-review had discovered but under-weighted. Plugin methodology cannot fix this class of blindspot — for severity-calibration triangulation on high-stakes diffs, pair devil-review with a cross-model adversarial review (e.g., the `codex` plugin in this same marketplace) and compare verdicts.
 
+**Cost profile — run it as the deep second pass, not the default reviewer.** devil-review optimizes for verification depth and noise elimination, not findings-per-minute: candidate claims are empirically tested and refuted before emission, so a significant share of its budget goes to *not* producing false alarms. In a measured three-way field comparison (saha test #6) it took over twice the wall-clock and ~1.5× the tokens of a standard single-model review while its unique contribution was verified-negative results rather than new actionable findings. The economical pattern: run a standard review (plus a cross-model one, per the blindspot note above) as the default per-change pass, and reserve devil-review for large or risky diffs where the question is "is there a whole class of bug everyone missed".
+
+**Stacking on another review's output.** The skill runs in an isolated fork and its prior-review auto-detect reads only its *own* target-scoped snapshots — findings from other reviewers earlier in the session are invisible to it by construction, so it will independently re-derive (and re-verify) known findings. When running it after another review, pass that review's findings as focus text (e.g. `/devil-review prior review already found X and Y — hunt for what it missed`) so the budget goes to new finding classes instead of re-derivation.
+
 ## License
 
 MIT
