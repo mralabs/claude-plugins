@@ -1,0 +1,243 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2026-08-06T05:10:11.756Z",
+  "categories": {
+    "official": {
+      "name": "Official / Upstream",
+      "description": "Primary tools this project builds on — check their changelogs first"
+    },
+    "competitors": {
+      "name": "Competitors",
+      "description": "Alternative products in the same space — watch for features worth adopting"
+    },
+    "deps": {
+      "name": "Key Dependencies",
+      "description": "Libraries whose breaking changes affect this project"
+    },
+    "inspiration": {
+      "name": "Inspiration",
+      "description": "Not direct competitors, but sources of ideas"
+    }
+  },
+  "tools": [
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "category": "official",
+      "type": "github",
+      "source": "anthropics/claude-code",
+      "url": "https://github.com/anthropics/claude-code",
+      "description": "Official Claude Code CLI — the runtime every plugin in this repo executes inside.",
+      "stars": null,
+      "status": "active",
+      "features": [
+        "plugin system (marketplace.json + per-plugin plugin.json)",
+        "skills (SKILL.md frontmatter: name, description, model, allowed-tools, disable-model-invocation)",
+        "subagents (agents/*.md; plugin-qualified names required for context: fork)",
+        "context: fork routing a skill body into a named subagent",
+        "hooks (PreToolUse/PostToolUse/Stop/SessionStart/...)",
+        "MCP server integration",
+        "settings.json permissions + env",
+        "headless -p mode"
+      ],
+      "notes": "THE breaking-change surface for this repo. Watch specifically: (1) skill frontmatter field additions/renames — every SKILL.md here depends on them; (2) `context: fork` + `agent:` name resolution semantics — a silent-fallback regression already burned this repo once (bare agent name ran promptless on the session model, 2026-07-17); (3) subagent frontmatter allow/deny list — hooks/mcpServers/permissionMode are blocked for plugin subagents, that list can change; (4) marketplace manifest schema; (5) model aliases in `model:` fields (haiku/sonnet/opus). CHANGELOG.md in the repo root is the signal, not the release tags.",
+      "tags": [
+        "cli",
+        "official",
+        "runtime"
+      ]
+    },
+    {
+      "id": "anthropics-skills",
+      "name": "Anthropic Skills",
+      "category": "official",
+      "type": "github",
+      "source": "anthropics/skills",
+      "url": "https://github.com/anthropics/skills",
+      "description": "Anthropic's official Agent Skills collection + the Agent Skills spec and template.",
+      "stars": 167000,
+      "status": "active",
+      "features": [
+        "spec/ — the Agent Skills specification",
+        "template/ — canonical skill scaffold",
+        "production document skills (PDF/DOCX/PPTX/XLSX) as reference implementations",
+        "installable as a Claude Code plugin marketplace",
+        "Skills API (upload custom skills via Claude API)"
+      ],
+      "notes": "De-facto authority on skill authoring convention. `spec/` is the one to watch — a spec change is a compatibility change for every SKILL.md in this repo. Also a quality benchmark: their skills show how Anthropic itself handles progressive disclosure and supporting-file layout, which is exactly the pattern devil-review uses (methodology.md / output-schema.md / domains/*.md siblings). Works across Claude Code, claude.ai and the API — if this repo's plugins ever need to run outside Claude Code, this is the portability spec.",
+      "tags": [
+        "official",
+        "skills",
+        "spec"
+      ]
+    },
+    {
+      "id": "davila7-claude-code-templates",
+      "name": "claude-code-templates",
+      "category": "competitors",
+      "type": "github",
+      "source": "davila7/claude-code-templates",
+      "url": "https://github.com/davila7/claude-code-templates",
+      "description": "Large catalog of agents, commands, hooks, MCPs, settings and skills for Claude Code, installed via npx.",
+      "stars": 30100,
+      "status": "active",
+      "features": [
+        "agents, slash commands, skills, hooks, settings, MCP configs",
+        "npx installer with per-component selection (--agent development-team/frontend-developer)",
+        "aitmpl.com web browser/installer",
+        "analytics + session monitor + health-check tooling",
+        "plugin dashboard for marketplace management"
+      ],
+      "notes": "The breadth competitor: quantity and discoverability, not depth. Its real differentiator over this repo is the DISTRIBUTION layer — a web catalog and a per-component npx installer, versus `/plugin marketplace add`. Watch for: component-level install (grab one skill, not a whole plugin), and whether they add versioning/changelog discipline (they currently don't do lockstep manifests the way this repo does). Not a methodology competitor — no equivalent to devil-review's schema/evals discipline.",
+      "tags": [
+        "marketplace",
+        "catalog",
+        "npx"
+      ]
+    },
+    {
+      "id": "obra-superpowers",
+      "name": "superpowers",
+      "category": "competitors",
+      "type": "github",
+      "source": "obra/superpowers",
+      "url": "https://github.com/obra/superpowers",
+      "description": "A full software-development methodology packaged as composable skills — the closest philosophical competitor to devil-review.",
+      "stars": 267500,
+      "status": "active",
+      "features": [
+        "TDD skill (RED-GREEN-REFACTOR enforced)",
+        "systematic root-cause debugging skill",
+        "brainstorming → design approval → planning → subagent dev → code review → branch completion workflow",
+        "parallel agent dispatch + git worktree management skills",
+        "skill-creation meta-skill",
+        "installs on 11 harnesses (Claude Code, Cursor, Copilot CLI, Codex, OpenCode, Antigravity, Factory Droid, ...)"
+      ],
+      "notes": "The one to actually watch. Same bet as this repo — methodology-as-skill, 'systematic over ad-hoc', 'evidence over claims' — at ~9x the star count. Two things it does that this repo does not: (1) MULTI-HARNESS install, one methodology across 11 agents; (2) a code-review skill inside a full lifecycle workflow rather than standalone. Its code-review skill is the direct devil-review comparison point — check how it handles verification and false positives. Conversely this repo's differentiators to defend: versioned output schema, eval suite guarding prose rules, adversarial verification pass. If superpowers ships a versioned schema or evals, the moat narrows.",
+      "tags": [
+        "methodology",
+        "skills",
+        "multi-harness"
+      ]
+    },
+    {
+      "id": "wshobson-agents",
+      "name": "wshobson/agents",
+      "category": "competitors",
+      "type": "github",
+      "source": "wshobson/agents",
+      "url": "https://github.com/wshobson/agents",
+      "description": "Multi-harness plugin marketplace: 94 plugins / 203 agents / 175 skills authored once, transpiled per harness.",
+      "stars": 38500,
+      "status": "active",
+      "features": [
+        "one source-of-truth plugins/ dir compiled to 5 harness-native formats (Claude Code, Codex, Cursor, OpenCode, Gemini)",
+        "16 orchestrators coordinating multi-agent workflows",
+        "tiered model strategy per task criticality (Fable 5 / Opus / Sonnet / Haiku)",
+        "plugin-eval quality framework: static checks, LLM judge, Monte Carlo runs",
+        "progressive-disclosure skill loading",
+        "external memory via Pensyve"
+      ],
+      "notes": "Structurally the nearest neighbour to this repo — same marketplace shape, same per-plugin manifest idea, but two disciplines further along. `plugin-eval` (static + LLM judge + Monte Carlo) is a direct superset of this repo's evals/ approach; worth reading before extending the eval suite. Their tiered model strategy is the same reasoning as this repo's Pattern 1/2/3 model selection, made explicit per-task. The multi-harness transpile (8KB caps for Codex, TOML for Gemini) is the interesting structural idea: it means harness-specific constraints get encoded once. Watch the eval framework and the orchestrator pattern.",
+      "tags": [
+        "marketplace",
+        "agents",
+        "evals",
+        "multi-harness"
+      ]
+    },
+    {
+      "id": "hesreallyhim-awesome-claude-code",
+      "name": "awesome-claude-code",
+      "category": "competitors",
+      "type": "github",
+      "source": "hesreallyhim/awesome-claude-code",
+      "url": "https://github.com/hesreallyhim/awesome-claude-code",
+      "description": "Curated awesome-list of Claude Code tools, skills, plugins and workflows.",
+      "stars": 51700,
+      "status": "active",
+      "features": [
+        "categorized index of skills, plugins, agents, hooks, workflows",
+        "PR-based submission via CONTRIBUTING",
+        "community discovery surface"
+      ],
+      "notes": "Not a product competitor — a discovery channel and an early-warning radar. New marketplaces show up here before they show up anywhere else, so it is the cheapest way to spot a rising competitor. Also a distribution lever this repo has not pulled: an entry for mralabs/claude-plugins is a PR, not a build. Signal to watch in its diffs is new ENTRIES, not releases — the repo tags rarely.",
+      "tags": [
+        "awesome-list",
+        "discovery"
+      ]
+    },
+    {
+      "id": "openai-codex",
+      "name": "OpenAI Codex CLI",
+      "category": "inspiration",
+      "type": "github",
+      "source": "openai/codex",
+      "url": "https://github.com/openai/codex",
+      "description": "OpenAI's terminal coding agent — the rival harness whose extension model shapes cross-harness expectations.",
+      "stars": 104300,
+      "status": "active",
+      "features": [
+        "terminal agent + `codex app` desktop mode",
+        "IDE integrations (VS Code, Cursor, Windsurf)",
+        "AGENTS.md convention for project instructions",
+        "MCP support",
+        "ChatGPT-plan or API-key auth"
+      ],
+      "notes": "Already indirectly relevant: this session's environment carries a codex plugin (codex:rescue / codex:codex-rescue subagent), so Codex is a runtime peer here, not only a competitor's product. The convention worth tracking is AGENTS.md — if it converges with or diverges from CLAUDE.md, the rule files under .claude/rules/ may need a portable twin. Also watch its skill/plugin story: both wshobson/agents and superpowers already transpile into Codex, meaning a Codex plugin format is becoming a real distribution target for methodology repos like this one.",
+      "tags": [
+        "agent-cli",
+        "competitor-harness",
+        "agents-md"
+      ]
+    },
+    {
+      "id": "sst-opencode",
+      "name": "opencode",
+      "category": "inspiration",
+      "type": "github",
+      "source": "sst/opencode",
+      "url": "https://github.com/sst/opencode",
+      "description": "Open-source terminal coding agent with a build/plan agent split and an open plugin surface.",
+      "stars": 193900,
+      "status": "active",
+      "features": [
+        "build agent (write access) vs plan agent (read-only) mode split",
+        "general subagent for multi-step search",
+        "desktop app (beta)",
+        "TypeScript monorepo with published SDK",
+        "VS Code extension"
+      ],
+      "notes": "Interesting for two design ideas rather than as a rival. First, the build/plan agent split is the same read-only-review boundary devil-review needs — a review skill that structurally cannot write is a stronger guarantee than an allowed-tools list. Second, it is fully open source, so its plugin/extension internals are readable in a way Claude Code's are not — useful when reverse-engineering how a harness ought to resolve subagent names or scope tools. Being a common transpile target for the multi-harness marketplaces makes it a plausible second distribution channel.",
+      "tags": [
+        "agent-cli",
+        "open-source",
+        "plugin-architecture"
+      ]
+    },
+    {
+      "id": "google-antigravity-antigravity-cli",
+      "name": "Antigravity CLI",
+      "category": "inspiration",
+      "type": "github",
+      "source": "google-antigravity/antigravity-cli",
+      "url": "https://github.com/google-antigravity/antigravity-cli",
+      "description": "Google's terminal agent, successor to Gemini CLI — shares the Antigravity 2.0 agent engine with the GUI.",
+      "stars": 1800,
+      "status": "active",
+      "features": [
+        "multi-step reasoning, multi-file editing, tool calling, persistent history",
+        "TUI optimized for SSH / keyboard-driven work",
+        "shared core engine with Antigravity 2.0 GUI; session export both ways",
+        "bidirectional settings sync between CLI and GUI",
+        "system-keyring auth with browser sign-in"
+      ],
+      "notes": "Replaces google-gemini/gemini-cli, which Google announced as transitioning to this (gemini-cli discussion #27274) — track this repo, not gemini-cli. Very early: ~1.8k stars, ~38 commits on main, and no documented skill/plugin/MCP extension surface yet. That is precisely why it is worth watching: the extension model is still being decided, and superpowers already ships an Antigravity install path, so a plugin format landing here becomes a distribution question for this repo fast. Signal to watch: the first release that names skills, plugins, custom commands or MCP.",
+      "tags": [
+        "agent-cli",
+        "google",
+        "early-stage"
+      ]
+    }
+  ]
+}

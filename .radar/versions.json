@@ -1,0 +1,131 @@
+{
+  "lastChecked": "2026-08-06T05:11:53.377Z",
+  "tools": {
+    "obra-superpowers": {
+      "lastChecked": "2026-08-06T05:11:52.838Z",
+      "currentVersion": "6.2.0",
+      "latestReleaseDate": "2026-07-24T00:28:17Z",
+      "history": [
+        {
+          "version": "6.2.0",
+          "date": "2026-07-24T00:28:17Z",
+          "type": "unknown",
+          "breaking": false
+        }
+      ],
+      "lastAnalyzedVersion": "6.2.0"
+    },
+    "claude-code": {
+      "lastChecked": "2026-08-06T05:11:52.848Z",
+      "currentVersion": "2.1.223",
+      "latestReleaseDate": "2026-08-06T00:52:37Z",
+      "history": [
+        {
+          "version": "2.1.223",
+          "date": "2026-08-06T00:52:37Z",
+          "type": "unknown",
+          "breaking": false
+        }
+      ],
+      "lastAnalyzedVersion": "2.1.223"
+    },
+    "davila7-claude-code-templates": {
+      "lastChecked": "2026-08-06T05:11:52.852Z",
+      "currentVersion": "1.28.3",
+      "latestReleaseDate": "2025-11-15T20:41:43Z",
+      "history": [
+        {
+          "version": "1.28.3",
+          "date": "2025-11-15T20:41:43Z",
+          "type": "unknown",
+          "breaking": false
+        }
+      ],
+      "lastAnalyzedVersion": "1.28.3"
+    },
+    "openai-codex": {
+      "lastChecked": "2026-08-06T05:11:52.977Z",
+      "currentVersion": "rust-v0.146.1",
+      "latestReleaseDate": "2026-08-05T15:55:06Z",
+      "history": [
+        {
+          "version": "rust-v0.146.1",
+          "date": "2026-08-05T15:55:06Z",
+          "type": "unknown",
+          "breaking": false
+        }
+      ],
+      "lastAnalyzedVersion": "rust-v0.146.1"
+    },
+    "google-antigravity-antigravity-cli": {
+      "lastChecked": "2026-08-06T05:11:53.062Z",
+      "currentVersion": "1.1.10",
+      "latestReleaseDate": "2026-08-03T15:45:42Z",
+      "history": [
+        {
+          "version": "1.1.10",
+          "date": "2026-08-03T15:45:42Z",
+          "type": "unknown",
+          "breaking": false
+        }
+      ],
+      "lastAnalyzedVersion": "1.1.10"
+    },
+    "hesreallyhim-awesome-claude-code": {
+      "lastChecked": "2026-08-06T05:11:53.157Z",
+      "currentVersion": "2-pre-v3-cutover",
+      "latestReleaseDate": null,
+      "history": [
+        {
+          "version": "2-pre-v3-cutover",
+          "date": "2026-08-06T05:11:53.157Z",
+          "type": "unknown",
+          "breaking": false
+        }
+      ],
+      "lastAnalyzedVersion": "2-pre-v3-cutover"
+    },
+    "sst-opencode": {
+      "lastChecked": "2026-08-06T05:11:53.210Z",
+      "currentVersion": "1.18.14",
+      "latestReleaseDate": "2026-08-05T20:58:55Z",
+      "history": [
+        {
+          "version": "1.18.14",
+          "date": "2026-08-05T20:58:55Z",
+          "type": "unknown",
+          "breaking": false
+        }
+      ],
+      "lastAnalyzedVersion": "1.18.14"
+    },
+    "anthropics-skills": {
+      "lastChecked": "2026-08-06T05:11:53.353Z",
+      "currentVersion": "commit-b29e7cf",
+      "latestReleaseDate": "2026-07-24T20:12:34Z",
+      "history": [
+        {
+          "version": "commit-b29e7cf",
+          "date": "2026-07-24T20:12:34Z",
+          "type": "unknown",
+          "breaking": false
+        }
+      ],
+      "lastAnalyzedVersion": "commit-b29e7cf"
+    },
+    "wshobson-agents": {
+      "lastChecked": "2026-08-06T05:11:53.376Z",
+      "currentVersion": "commit-c4b82b0",
+      "latestReleaseDate": "2026-07-18T21:25:19Z",
+      "history": [
+        {
+          "version": "commit-c4b82b0",
+          "date": "2026-07-18T21:25:19Z",
+          "type": "unknown",
+          "breaking": false
+        }
+      ],
+      "lastAnalyzedVersion": "commit-c4b82b0"
+    }
+  }
+}
