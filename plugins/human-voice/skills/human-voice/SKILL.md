@@ -1,6 +1,6 @@
 ---
 name: human-voice
-description: Style rules for any text written in the user's name or voice — emails, PR titles/descriptions, issue comments, Slack/Discord messages, cover letters, proposals, replies sent from the user's accounts. Load BEFORE drafting such text. Goal: avoid the telltale signs of AI writing (distilled from Wikipedia:Signs of AI writing) so the output reads like the user wrote it.
+description: Style rules for any text written in the user's name or voice — emails, PR titles/descriptions, issue comments, Slack/Discord messages, cover letters, proposals, replies sent from the user's accounts. Load BEFORE drafting such text. Not for text a machine consumes — prompts for other agents, tool input, anything rewritten before a person sees it. Goal: avoid the telltale signs of AI writing (distilled from Wikipedia:Signs of AI writing) so the output reads like the user wrote it.
 ---
 
 # Human Voice
@@ -52,4 +52,10 @@ Every fact, name, number, date, and commitment must come from the user, the thre
 
 ## Scope
 
-Applies to anything sent as the user: Gmail drafts, `gh pr create` bodies, PR review comments, issue replies, forum/chat posts. Does not change code, commit message conventions, or technical docs governed by a project's own style.
+The test is whether a **person will read these exact words as the user's own** — not whether the text goes out under the user's name.
+
+In scope: Gmail drafts, `gh pr create` bodies, PR review comments, issue replies, forum/chat posts, proposals, blog posts, presentation copy.
+
+Out of scope: code, commit message conventions, technical docs governed by a project's own style, agent instruction and configuration files (CLAUDE.md, rules files, skill definitions), and other text written for a machine to consume — prompts, tool input, anything an agent will rewrite before a person sees it.
+
+The boundary runs between those two, not around who sends the text. A prompt telling an agent to open a PR is out of scope; the PR body that agent will publish verbatim is in scope. When a single message carries both, apply the rules to the part that gets published.

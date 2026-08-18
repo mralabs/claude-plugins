@@ -71,7 +71,7 @@ Delegates commit message generation to a dedicated Haiku subagent running in a f
 
 > *Ghostwriting that doesn't read as AI.*
 
-Style guard loaded before drafting any text sent in the user's name — emails, PR descriptions, issue/review comments, chat messages. A compact rule sheet distilled from [Wikipedia:Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing), plus ghostwriting-specific tone/register/no-fabrication rules. Applies in whatever language the text is written. Invoke on demand or let it load automatically — the description model-invokes it when Claude is about to write as you; pair it with a `CLAUDE.md` directive for guaranteed loading.
+Style guard loaded before drafting any text a human will read as the user's own words — emails, PR descriptions, issue/review comments, chat messages. Text a machine consumes (prompts for other agents, tool input) stays out of scope. A compact rule sheet distilled from [Wikipedia:Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing), plus ghostwriting-specific tone/register/no-fabrication rules. Applies in whatever language the text is written. Invoke on demand or let it load automatically — the description model-invokes it when Claude is about to write as you; pair it with a `CLAUDE.md` directive for guaranteed loading.
 
 ```bash
 /human-voice reply to this email: <paste>

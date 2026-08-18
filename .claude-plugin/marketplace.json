@@ -40,8 +40,8 @@
     },
     {
       "name": "human-voice",
-      "description": "Ghostwriting style guard — loaded before drafting any text sent in the user's name, so it doesn't read as AI-written.",
-      "version": "0.1.0",
+      "description": "Ghostwriting style guard — loaded before drafting any text a human will read as the user's own words, so it doesn't read as AI-written.",
+      "version": "0.2.0",
       "author": {
         "name": "mralabs"
       },
