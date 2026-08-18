@@ -80,7 +80,7 @@ A plugin can live in its own repository (e.g. `radar` → `mralabs/radar`) and s
 
 - The external repo contains only `.claude-plugin/plugin.json` — **never a marketplace.json**. One org, one catalog: a second marketplace claiming the `mralabs` name shadows this one and breaks installs (learned 2026-07-17 when radar's own marketplace.json hijacked the `mralabs` registration and `commit`/`devil-review` became uninstallable).
 - The catalog entry uses `"source": { "source": "github", "repo": "mralabs/<name>" }` instead of a local path.
-- Every release in the external repo bumps **both** its plugin.json and this catalog's `plugins[].version` — same lockstep rule as local plugins, across two repos. The pre-commit hook cross-checks github-source entries against the remote plugin.json (skipped with a warning when offline, so network failure never blocks unrelated commits).
+- Every release in the external repo bumps **both** its plugin.json and this catalog's `plugins[].version` — same lockstep rule as local plugins, across two repos. The pre-commit hook cross-checks github-source entries against the remote plugin.json (skipped with a warning when offline, so network failure never blocks unrelated commits). Order matters across the two repos: push the external repo first, then commit the catalog — the hook reads the pushed state, not your local one. It reads `raw.githubusercontent.com`, which is CDN-cached for five minutes, so a mismatch is re-checked against the uncached API before the commit is blocked; the happy path costs no API quota. Run it by hand any time with `python3 .githooks/version_drift.py`.
 
 ## Model selection per skill
 

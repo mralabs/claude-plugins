@@ -2,12 +2,9 @@
 #
 # pre-commit: enforce plugin manifest version consistency.
 #
-# For every plugin listed in .claude-plugin/marketplace.json, verify that its
-# marketplace version matches the plugin's own plugin.json:
-#   - local entries (source: "./plugins/<name>") -> plugins/<name>/.claude-plugin/plugin.json
-#   - github entries (source: {source: github, repo: ...}) -> raw.githubusercontent.com fetch
-# Blocks the commit if the two drift. GitHub checks are skipped with a warning
-# when offline — network failure must not block unrelated commits.
+# The check itself lives in .githooks/version_drift.py so it can be run by
+# hand (python3 .githooks/version_drift.py) and its fetch seams can be
+# exercised without a commit. This wrapper only decides WHETHER to run it.
 #
 # The check runs only when the commit touches plugin files or the marketplace
 # manifest — unrelated commits (tooling, docs-only on CLAUDE.md, etc.) pass
@@ -36,95 +33,4 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-python3 - "$REPO_ROOT" <<'PY'
-import json
-import os
-import sys
-import urllib.error
-import urllib.request
-
-repo_root = sys.argv[1]
-marketplace_path = os.path.join(repo_root, ".claude-plugin", "marketplace.json")
-
-with open(marketplace_path, "r", encoding="utf-8") as f:
-    marketplace = json.load(f)
-
-errors = []
-
-for entry in marketplace.get("plugins", []):
-    name = entry.get("name")
-    marketplace_version = entry.get("version")
-
-    if not name:
-        errors.append("marketplace.json has a plugin entry with no 'name' field")
-        continue
-    if not marketplace_version:
-        errors.append(f"marketplace.json entry '{name}' has no 'version' field")
-        continue
-
-    source = entry.get("source")
-    if isinstance(source, dict) and source.get("source") == "github":
-        repo = source.get("repo")
-        if not repo:
-            errors.append(f"plugin '{name}': github source has no 'repo' field")
-            continue
-        url = f"https://raw.githubusercontent.com/{repo}/HEAD/.claude-plugin/plugin.json"
-        try:
-            with urllib.request.urlopen(url, timeout=5) as resp:
-                plugin_json = json.load(resp)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
-            print(
-                f"pre-commit: warning: could not verify remote plugin '{name}' "
-                f"({repo}): {e} — skipping cross-repo check.",
-                file=sys.stderr,
-            )
-            continue
-        source_label = f"{repo} plugin.json (remote)"
-    else:
-        plugin_json_path = os.path.join(
-            repo_root, "plugins", name, ".claude-plugin", "plugin.json"
-        )
-        if not os.path.isfile(plugin_json_path):
-            errors.append(
-                f"plugin '{name}': plugin.json missing at plugins/{name}/.claude-plugin/plugin.json"
-            )
-            continue
-
-        try:
-            with open(plugin_json_path, "r", encoding="utf-8") as f:
-                plugin_json = json.load(f)
-        except json.JSONDecodeError as e:
-            errors.append(f"plugin '{name}': plugin.json is not valid JSON: {e}")
-            continue
-        source_label = f"plugins/{name}/.claude-plugin/plugin.json"
-
-    plugin_version = plugin_json.get("version")
-    if not plugin_version:
-        errors.append(
-            f"plugin '{name}': plugin.json has no 'version' field "
-            f"(marketplace declares {marketplace_version})"
-        )
-        continue
-
-    if plugin_version != marketplace_version:
-        errors.append(
-            f"plugin '{name}': version drift\n"
-            f"  marketplace.json:  {marketplace_version}\n"
-            f"  {source_label}:  {plugin_version}"
-        )
-
-if errors:
-    print("pre-commit: plugin manifest version drift detected", file=sys.stderr)
-    print("", file=sys.stderr)
-    for err in errors:
-        print(f"  - {err}", file=sys.stderr)
-    print("", file=sys.stderr)
-    print(
-        "Sync marketplace.json and plugin.json before committing. "
-        "See CLAUDE.md 'Version bumping discipline'.",
-        file=sys.stderr,
-    )
-    sys.exit(1)
-
-sys.exit(0)
-PY
+exec python3 "$REPO_ROOT/.githooks/version_drift.py" "$REPO_ROOT"
