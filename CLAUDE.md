@@ -159,12 +159,14 @@ Surfaces to check on every shipping:
 
 Convention: the shipping commit body's "Self-review fixes rolled into this commit" section calls out which documentation surfaces were checked — either updated or explicitly confirmed unaffected. "README unchanged for this change — no user-facing behavior shifted" is a valid entry; silent omission is not. This makes documentation update a first-class concern at shipping time rather than an afterthought that accumulates as debt.
 
-## Hooks setup (one-time)
+## Version drift: two layers
 
-After cloning, run:
+**CI is the guarantee.** `.github/workflows/ci.yml` runs `.githooks/version_drift.py` on every push and PR, plus weekly. The weekly run is not redundant: an external plugin repo can release and forget the catalog bump, and nothing in this repo would be committed to notice.
+
+**The hook is fast feedback**, and it is opt-in per clone:
 
 ```sh
 git config core.hooksPath .githooks
 ```
 
-This points git at the repo-local hooks directory so the version drift check runs on every commit. Without this, commits are not checked.
+Without that, local commits run no check — which has actually happened here, and is exactly why the CI layer exists. Run the check by hand any time with `python3 .githooks/version_drift.py`.

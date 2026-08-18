@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  schedule:
+    # The catalog can go stale without anyone committing here: an external
+    # plugin repo (radar) can release and forget the catalog bump, and only
+    # this repo's side of the lockstep is guarded by a hook. Push-triggered
+    # runs cannot see that, so re-check on a timer too.
+    - cron: '17 6 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  version-lockstep:
+    # The pre-commit hook is fast feedback, not a guarantee: it lives behind a
+    # manual `git config core.hooksPath .githooks`, and a clone that skips that
+    # step runs no check at all. This job is the guarantee.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 .githooks/version_drift.py

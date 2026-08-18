@@ -98,7 +98,7 @@ def check(repo_root, raw=fetch_raw, api=fetch_api):
             except Unconfirmed as e:
                 seen, cause = e.args
                 print(
-                    f"pre-commit: warning: '{name}' looks like drift "
+                    f"version-drift: warning: '{name}' looks like drift "
                     f"(marketplace {marketplace_version}, remote {seen}) but the API "
                     f"could not confirm it ({cause}). raw is CDN-cached for 5 minutes, "
                     f"so this is expected right after a push — NOT blocking. If you did "
@@ -108,7 +108,7 @@ def check(repo_root, raw=fetch_raw, api=fetch_api):
                 continue
             except NET_ERRORS as e:
                 print(
-                    f"pre-commit: warning: could not verify remote plugin '{name}' "
+                    f"version-drift: warning: could not verify remote plugin '{name}' "
                     f"({repo}): {e} — skipping cross-repo check.",
                     file=sys.stderr,
                 )
@@ -156,14 +156,14 @@ def main(argv):
     errors = check(repo_root)
     if not errors:
         return 0
-    print("pre-commit: plugin manifest version drift detected", file=sys.stderr)
+    print("version-drift: plugin manifest version drift detected", file=sys.stderr)
     print("", file=sys.stderr)
     for err in errors:
         print(f"  - {err}", file=sys.stderr)
     print("", file=sys.stderr)
     print(
-        "Sync marketplace.json and plugin.json before committing. "
-        "See CLAUDE.md 'Version bumping discipline'.",
+        "Sync marketplace.json and plugin.json, then push the external repo "
+        "before the catalog. See CLAUDE.md 'Version bumping discipline'.",
         file=sys.stderr,
     )
     return 1
