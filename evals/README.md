@@ -41,10 +41,17 @@ here, not in its sandbox.
 | `commit-secret-refusal` | commit-writer.md Step 3, untracked match — exclude the secret, commit the rest, report the exclusion | yes — inverting to "refuse everything" went 0.00 (hook never ran) |
 | `commit-secret-staged-refusal` | commit-writer.md Step 3, staged match — refuse the ENTIRE commit, never unstage | yes — inverting to "unstage and commit the rest" went 0.00 |
 | `commit-pr-skip-non-github` | commit-writer.md Step 7.5 guard (v0.4.x) — `--pr` with a non-GitHub origin commits plainly on the trunk, creates no work branch, pushes nothing, reports ` — PR skipped` | yes — organically, during authoring: pre-v0.4.2 prose failed 2/9 runs, both creating a work branch despite the guard; the autopsied one also pushed to the file:// remote (successfully) and reported "PR failed" instead of "PR skipped". The v0.4.2 fix: 15/15 valid post-fix runs passed with zero guard violations (a 16th run escaped the sandbox entirely — see the hazard note above) |
+| `human-voice-skips-agent-prompt` | SKILL.md frontmatter description + Scope (v0.2.0) — drafting a task prompt for a subagent must NOT load the skill; the words go out under the user's name but no person reads them as the user's own | yes — inverting the description to claim machine-bound text is in scope fired the skill 3/3, reproducing the field drift that caused v0.2.0 |
+| `human-voice-guards-published-text` | the same scope rule from the other side — same scaffold, same shape of request, only the reader differs: a PR description MUST load the skill | yes — an inversion pulling repository text out of the trigger list dropped invocations to 0/3 |
+| `human-voice-skips-agent-config` | the description's trigger list must not broaden far enough to swallow agent config files — adding a section to a repo's CLAUDE.md must not load the skill | yes, with a caveat worth knowing: it goes red only when the **description** names config files. An inversion that flipped the Scope body alone left it green 3/3 — see the invocation note under harness facts. What this case guards is the trigger list staying narrow, not the exclusion sentence |
 
-All five are **regression guards, not value proofs**. Both plugins are
-`disable-model-invocation`, so with the plugin off the slash command does not
-exist and the ablation arm is meaningless. Run with `--ablation none`.
+All eight are **regression guards, not value proofs**. `devil-review` and
+`commit` are `disable-model-invocation`, so with the plugin off the slash
+command does not exist and the ablation arm is meaningless. `human-voice` is
+model-invocable, so a baseline arm would mean something there — but its graders
+assert on whether the skill fired, which the harness marks `with-only` and
+drops from the score under `with-without` anyway. Run the suite with
+`--ablation none`.
 
 ## The bare-agent-name incident (why the commit cases exist twice over)
 
@@ -129,6 +136,19 @@ here.
   in context is untestable here.
 - `tool_used` with only `max: 0` reads as "expected 1..0" and always fails. To
   assert a tool was not used, set **both** `min: 0` and `max: 0`.
+- **Writes into `.claude/` are denied inside the sandbox**, even with
+  `--allow-tools Write`. The protection is path-based, not tool-based: `Write`
+  and a `cat >` heredoc through Bash both came back "permission denied" while
+  the same run wrote to the cwd root fine. Put files the agent must create at
+  the root — a root `CLAUDE.md` works. Costs a batch to learn, because the
+  companion grader fails on a file the agent was never allowed to create.
+- **Model-invocation is decided from the skill's frontmatter `description`
+  alone.** Prose in the skill body cannot change whether a skill loads, only
+  what it does once loaded. A case grading "did the skill fire" is therefore
+  grading the description; inverting a `## Scope` section and expecting the
+  trigger to move measures nothing (verified: Scope-only inversion left
+  `human-voice-skips-agent-config` green 3/3, the same claim added to the
+  description flipped it red 3/3).
 - Headless `claude -p "/commit"` does not spawn the skill fork at all — the
   main loop improvises inline. Don't use `-p` to test fork-routed skills.
 
