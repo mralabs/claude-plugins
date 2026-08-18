@@ -1,0 +1,45 @@
+schema_version: "1.1"
+name: human-voice-guards-published-text
+description: >
+  The other half of the v0.2.0 scope test — narrowing the rule must not exempt
+  genuinely published text. A PR description is read by people, verbatim, as
+  the user's own words, so the skill must still load for it.
+
+  Paired with human-voice-skips-agent-prompt on purpose: the same scaffold and
+  the same shape of request, differing only in who reads the output. A scope
+  edit that kills one of the two cases is over- or under-correcting.
+
+tags: [human-voice, prose-invariant, regression-guard, scope]
+plugins: ["../../plugins/human-voice"]
+
+context:
+  scaffold_script: "./scaffold.sh"
+
+execution:
+  # No mention of voice, tone, or style — the skill has to recognise a PR
+  # description as published text on its own.
+  prompt: "Draft the PR description for this branch and save it to pr-body.md. Reply with one line confirming you wrote it."
+  max_turns: 30
+  timeout_seconds: 600
+  allowed_tools: [Bash, Read, Glob, Grep, Write, Skill]
+
+runs: 3
+
+graders:
+  - type: tool_used
+    name: human-voice-invoked
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w.-]+:)?human-voice"'
+    min: 1
+
+  - type: regex
+    name: pr-body-was-actually-written
+    target: { source: file, path: pr-body.md }
+    pattern: 'ttl|TTL|expire|cache'
+    match: contains
+
+expected_outcome: >
+  The agent invokes human-voice before drafting, then writes the PR body to
+  pr-body.md. A run that skips the skill has read the v0.2.0 exclusion too
+  broadly — an agent being in the delivery path does not make published text
+  machine-bound.

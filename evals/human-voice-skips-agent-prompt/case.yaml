@@ -1,0 +1,61 @@
+schema_version: "1.1"
+name: human-voice-skips-agent-prompt
+description: >
+  SKILL.md Scope + frontmatter description (v0.2.0) — the skill must NOT load
+  when the text being drafted is written for a machine to consume. Handing a
+  task prompt to a subagent is the canonical case: the words go out under the
+  user's name, but no human ever reads them as the user's own.
+
+  This is the observed field drift that produced v0.2.0. The pre-v0.2.0 wording
+  defined scope by authorship ("anything sent as the user"), which pulled agent
+  prompts in.
+
+  The sandbox does not load a repo CLAUDE.md, so the global directive is
+  untestable here by design — this case grades the skill's own description,
+  which is the only trigger signal in contexts without that directive
+  (subagents, other machines). That is the path worth guarding.
+
+tags: [human-voice, prose-invariant, regression-guard, scope]
+plugins: ["../../plugins/human-voice"]
+
+context:
+  scaffold_script: "./scaffold.sh"
+
+execution:
+  # The answer is never in the prompt: it says nothing about voice, style, or
+  # who reads the result. The scope decision has to come from the skill's own
+  # description.
+  prompt: "I'm handing this branch off to a subagent that will open the PR. Write the task prompt that subagent should receive — the instructions it needs to do the job — and save it to handoff-prompt.md. Reply with one line confirming you wrote it."
+  max_turns: 30
+  timeout_seconds: 600
+  # Skill must be granted, or "was not invoked" grades a fiction: the agent
+  # would have had no way to invoke it even if the prose told it to.
+  allowed_tools: [Bash, Read, Glob, Grep, Write, Skill]
+
+runs: 3
+
+graders:
+  - type: tool_used
+    name: human-voice-not-invoked
+    tool: Skill
+    # Matches both the qualified name and a bare one, so the case does not
+    # break if resolution changes.
+    input_match: '"skill"\s*:\s*"(?:[\w.-]+:)?human-voice"'
+    # Both bounds are required. `max: 0` alone reads as "expected 1..0" and
+    # always fails — see evals/README.md, harness facts.
+    min: 0
+    max: 0
+
+  # Companion to the negative grader: proves the run actually did the work.
+  # Without it, an agent that did nothing at all would score green.
+  - type: regex
+    name: handoff-prompt-was-actually-written
+    target: { source: file, path: handoff-prompt.md }
+    pattern: 'ttl|TTL|expire|cache'
+    match: contains
+
+expected_outcome: >
+  The agent reads the branch, writes a task prompt for the subagent to
+  handoff-prompt.md, and never invokes human-voice. A run that loads the skill
+  is the v0.1.0 drift reproducing: it is about to apply an em-dash budget and a
+  no-bullet-lists rule to instructions no person will read.

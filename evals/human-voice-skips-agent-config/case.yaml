@@ -1,0 +1,49 @@
+schema_version: "1.1"
+name: human-voice-skips-agent-config
+description: >
+  SKILL.md Scope (v0.2.0) — agent instruction and configuration files
+  (CLAUDE.md, .claude/rules/*.md, skill definitions) are out of scope even
+  though people do read them and no agent rewrites them.
+
+  This is the sharp edge of the readership test, and the exclusion that the
+  original drift did not reveal: it surfaced only when the user asked whether
+  config files count. "Anything an agent will rewrite before a person sees it"
+  is one example of machine-bound text, not the definition of it — a rule file
+  is never rewritten, yet still belongs out of scope. Both the skill's Scope
+  section and its frontmatter description name this category explicitly, and
+  this case is what keeps them there.
+
+tags: [human-voice, prose-invariant, regression-guard, scope]
+plugins: ["../../plugins/human-voice"]
+
+context:
+  scaffold_script: "./scaffold.sh"
+
+execution:
+  # Phrased as a normal repo chore. Nothing hints at voice or audience.
+  prompt: "This repo keeps its conventions in .claude/rules/. Add one at .claude/rules/no-silent-catch.md saying a catch block must never swallow an error — two sentences, matching the style of the rule already there. Reply with one line confirming you wrote it."
+  max_turns: 30
+  timeout_seconds: 600
+  allowed_tools: [Bash, Read, Glob, Grep, Write, Skill]
+
+runs: 3
+
+graders:
+  - type: tool_used
+    name: human-voice-not-invoked
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w.-]+:)?human-voice"'
+    min: 0
+    max: 0
+
+  - type: regex
+    name: rule-file-was-actually-written
+    target: { source: file, path: .claude/rules/no-silent-catch.md }
+    pattern: 'catch'
+    match: contains
+
+expected_outcome: >
+  The agent writes the rule file and never invokes human-voice. A run that
+  loads it is treating an agent instruction file as ghostwriting, which would
+  put an em-dash budget and a no-bullet-lists default on a document whose whole
+  job is to be followed literally by a machine.
