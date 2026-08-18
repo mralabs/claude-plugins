@@ -124,6 +124,23 @@ When making non-trivial changes to methodology, schemas, or domain checklists:
 
 This is a learned practice: every release in this repo so far has benefited from applying the plugin's rules to its own changes before shipping.
 
+## Verified by hand once, guarded by CI after
+
+When you verify something manually — running a command under an old runtime, checking an exit code, confirming a claim about a remote — ask whether CI can hold that check permanently. If it can, add it in the same shipping. A manual verification proves the code works today; only a guard keeps it working.
+
+This matters most for checks that are **invisible in normal conditions**, because those are exactly the ones no one repeats:
+
+- A regression only an unsupported runtime shows. Every other job runs something new enough not to care, so they all stay green while the broken path ships.
+- A wrong exit code. The error message prints either way, so a human reading output cannot see it — only a caller reading `$?` can.
+- A claim about a remote or another repo. Local state says nothing about it.
+
+Two forms this takes, both proven here on 2026-08-18:
+
+- **Assert on output, not just exit status.** A smoke test that only runs a command passes even when the command's output is wrong. Where the output is the point, `grep -q` it.
+- **Turn the assumption you could not test locally into a CI job.** Preferable to shipping it as a guess. A red job is a finding; an unstated assumption is not.
+
+And a check that only runs when someone opted in is not enforcement. `.githooks/pre-commit` sits behind a manual `git config core.hooksPath .githooks`, and a clone that skipped it ran no version check at all — see "Version drift: two layers". Local hooks are fast feedback; CI is the guarantee.
+
 ## Plan docs
 
 Multi-shipping plans live at `plugins/<name>/docs/<plan-name>.md` and evolve across shipping cycles. Examples today: `plugins/devil-review/docs/phase-3-plan.md` (unstarted items + item shipping notes + revision log) and `plugins/devil-review/docs/phase-2-5-plan.md` (completed and preserved for reference).
