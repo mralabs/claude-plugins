@@ -75,3 +75,24 @@ render, dropping a table cell. Locale parity tests passed. Add to Phase 1: "grep
 files for message syntax the i18n library does not support (ICU `{n, plural,` in
 vue-i18n, pipes in ICU libraries) and log hits as findings."
 → references/platforms/web.md, or SKILL.md Phase 1
+
+## 2026-10-12 · any app with user-visible names · Phase 2 · missing · open
+A display name made only of spaces saved fine (the button checked emptiness without
+trimming, the backend rule checked length only), and the app then rendered that user as
+"Deleted account" to everyone. The checklist names length limits but not blank input.
+→ references/screen-checklist.md, Forms: "whitespace-only and leading/trailing-space
+input on every required text field; check how the saved value renders to *other* users."
+
+## 2026-10-12 · any app with admin or destructive actions · Phase 2 · missing · open
+An admin "Delete user" said "Success" but removed only the profile document; the user
+signed straight back in with groups and balances intact. Only signing in as the affected
+account showed it. → SKILL.md Phase 2 "beyond the happy path": "after a destructive or
+admin action, verify its effect from the affected side (sign in as that user, open the
+deleted record's URL), not from the success toast."
+
+## 2026-10-12 · SPA with an in-app language switch · Phase 2 · missing · open
+One screen formatted a month with `toLocaleDateString(undefined, …)`, so it followed the
+browser's language, not the app's: "October 2026" on a Turkish UI. A tour whose browser
+locale matches the app language never sees it. → references/platforms/web.md: "run the
+second-language pass with the browser locale set to the *other* language, and grep for
+locale-less `toLocale*String(undefined` / `Intl.*(undefined` calls."
