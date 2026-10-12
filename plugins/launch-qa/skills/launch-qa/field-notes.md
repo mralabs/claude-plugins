@@ -199,3 +199,29 @@ the strongest model at high effort; copy, layout and their reviews do not; runni
 suite and reporting is mechanical. → "Fix and gap phases": the coordinator picks model
 and effort per delegated task by risk, says the choice when launching, and starts a new
 session per phase so its own re-read context stays small.
+
+## 2026-10-12 · Vue SPA + Firestore emulator · Phase 6 · missing · open
+The coverage map written in Phase 1 was stale by the gap phase: the fix phase had added
+tests for several ★ flows, and one map entry was misleading (a "payment delete" spec
+covered a different kind of payment). → "Fix and gap phases", Gaps: before writing a gap
+test, re-grep the current specs for that flow, read the matching test body, and record
+"covered by <spec › title>" or the new test in the log.
+
+## 2026-10-12 · any · Phase 6 · missing · open
+The QA seed's "max length" strings were 1–5 characters short of the real limits, so the
+tour never tested the limit itself. → Phase 1 seed list: build boundary strings from the
+app's own length constants (or assert their length), and in the gap phase move them into
+a shared E2E helper with a unit check that each one is exactly at its limit.
+
+## 2026-10-12 · Firestore + notification fan-out · Phase 6 · missing · open
+A new E2E test saw no notification for a freshly created account: the fan-out skipped
+recipients without a profile document, which only a first sign-in creates. Not an app
+bug. → references/tooling.md: accounts created only in the auth emulator may lack the
+profile doc the backend reads; sign each test account in once before asserting on
+anything sent to it.
+
+## 2026-10-12 · any · Phase 6 · missing · open
+A locale smoke set pins today's translated strings, including ones already logged as
+minor copy findings; fixing those findings later turns the smoke set red. → Gaps: when a
+smoke test asserts on text that has an open copy finding, note it in the log next to the
+finding so the fix updates both.
