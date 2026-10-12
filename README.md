@@ -13,6 +13,7 @@ Claude Code plugin marketplace by [mralabs](https://github.com/mralabs).
 /plugin install radar@mralabs
 /plugin install commit@mralabs
 /plugin install human-voice@mralabs
+/plugin install launch-qa@mralabs
 ```
 
 ## Plugins
@@ -78,6 +79,20 @@ Style guard loaded before drafting any text a human will read as the user's own 
 ```
 
 [Full documentation](plugins/human-voice/)
+
+### launch-qa
+
+> *Test the whole app before launch, and get better at it every time.*
+
+Phased, multi-session pre-launch QA for apps with a web UI (SPA, SSR, PWA, WebView shell, Tauri/Electron desktop): flow inventory and E2E coverage map, an edge-case seed, hands-on tours per platform, severity-ranked findings, test-first fixes. The QA log on a board card or in `docs/qa/` carries the job between sessions. Every session ends with a retro whose general lessons collect in `field-notes.md` until an evolve pass folds them in. Experimental (0.x).
+
+```bash
+/launch-qa                          # start: inventory, coverage map, QA seed
+Do the next launch-QA phase         # resume from the QA log in any session
+evolve launch-qa                    # fold collected field notes into the skill
+```
+
+[Full documentation](plugins/launch-qa/)
 
 ## License
 
