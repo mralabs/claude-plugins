@@ -156,3 +156,38 @@ permission grant/deny/settings round trip. Also: leaving to another app (share t
 messenger) lands back in that app's own history; return with `am start`, and delete
 screenshots that caught the user's personal notifications. → re-date the webview-shell.md
 header; add the return/privacy note to device setup.
+
+## 2026-10-12 · any repo, fixes delegated to subagents · Phase 5 · missing · open
+Two fix agents committing in the same worktree share one git index: one agent's staged
+test hunks landed in the other's commit, leaving an intermediate commit whose rules
+suite was red. → SKILL.md "Fix and gap phases": one writing agent per worktree at a
+time (or one worktree each); reviewers run read-only in parallel; commits use a
+pathspec (`git commit -- <paths>`) and are checked with `git show --stat HEAD`.
+
+## 2026-10-12 · any app · Phase 5 · missing · open
+An independent review after each fix group found real problems in about half the groups:
+a rule fix that still let one party approve their own change, a stored display name that
+survived account deletion, a validation tightening that broke sign-up through another
+writer, a new mobile layout that broke an existing E2E. → "Fix and gap phases": require
+an independent review per fix group, and tell the reviewer to grep every writer/caller of
+what changed (rules, shared helpers, stored fields), not only the diff.
+
+## 2026-10-12 · Vue SPA + Firestore emulator, dev machine shared with other work · Phase 5 · missing · open
+The full E2E suite was stopped twice by the host for low memory while other sessions and
+browsers ran. Batches of ~15 specs, each with a fresh emulator stack, finished; review
+agents running tests at the same time made it worse. → references/tooling.md: run the
+final suite in batches, nothing else heavy in parallel, and record which batches passed
+so a stopped run resumes instead of restarting.
+
+## 2026-10-12 · any app with date-based schedules · Phase 1 · missing · open
+A month-end overflow (start on the 31st + 1 month → March, February dropped from the
+schedule and the interest ledger) went unseen through every tour; a reviewer of the seed
+script spotted it in the shared date helper. → Phase 1 seed list: include records
+starting on the 29th–31st and spanning February (and a leap year), and check their
+schedules and per-month figures during the tour.
+
+## 2026-10-12 · any · Phase 5 · wrong · open
+The coordinator's fix brief carried a fact from the QA log that was wrong about the code
+("days are stored at noon UTC"; the app stores local midnight). The fix agent caught it by
+reading the code. → "Fix and gap phases": the QA log describes symptoms; a fix agent
+verifies every claim about code (paths, lines, formats) against the code before acting.
