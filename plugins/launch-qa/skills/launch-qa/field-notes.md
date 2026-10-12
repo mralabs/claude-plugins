@@ -40,3 +40,38 @@ step the app gates on, except the one account kept for that gate.
 A parallel session ran the next phase while another session was still editing the log;
 a note claimed the wrong "next phase". → Start of session: re-read the log right before
 writing to it, not only at the start.
+
+## 2026-10-12 · any app with two-party approval · Phase 2 · missing · open
+A record the other party had acknowledged could be edited by its owner afterwards; the
+status stayed "acknowledged" and nobody was told. The checklist never prompts this. Add:
+"for records one party writes and another approves, edit and delete after approval and
+check the status resets, the other party is notified and history shows it."
+→ references/screen-checklist.md, States
+
+## 2026-10-12 · any app storing derived money values · Phase 2 · missing · open
+Values computed at write time and stored on the record (balance after payment, interest
+so far) were wrong at creation and never recomputed after an edit. The tour only caught it
+by comparing the stored column with the live total. Add: "after editing or deleting a
+money record, compare every stored derived number on screen with a fresh computation."
+→ references/screen-checklist.md, Numbers
+
+## 2026-10-12 · Vue SPA + Firestore emulator · Phase 1 · missing · open
+Three seed artefacts cost tour time: side documents the app writes (an invite-token
+registry, a generated schedule subcollection) were missing, and a derived field was
+hard-coded instead of derived from a date. Add to QA seed: "create one record of each type
+through the UI and diff its documents (and subcollections) with a seeded one before the
+tour." → SKILL.md Phase 1, QA seed
+
+## 2026-10-12 · any app with job-written reference data · Phase 1 · missing · open
+Exchange/inflation rates are written by a scheduled job in production, so the emulator
+had none and every indexed flow showed "no data". It cannot be created through the UI.
+The E2E suite already had a fixture of the document's shape. Add: "reference data written
+by background jobs goes into the QA seed as a fixture; reuse the E2E fixture's shape."
+→ SKILL.md Phase 1, QA seed
+
+## 2026-10-12 · Vue SPA + vue-i18n · Phase 2 · missing · open
+A locale message used ICU plural syntax, which vue-i18n cannot compile; it failed only at
+render, dropping a table cell. Locale parity tests passed. Add to Phase 1: "grep locale
+files for message syntax the i18n library does not support (ICU `{n, plural,` in
+vue-i18n, pipes in ICU libraries) and log hits as findings."
+→ references/platforms/web.md, or SKILL.md Phase 1
