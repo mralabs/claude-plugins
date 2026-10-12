@@ -112,3 +112,47 @@ overflow) missed amounts spilling out of fixed-width stat tiles, because that te
 `overflow: visible`; the user spotted it in a screenshot. → references/screen-checklist.md
 or tooling.md: also flag leaf text whose right edge passes its nearest card/tile
 container, and look at every screenshot rather than trusting the detector.
+
+## 2026-10-12 · Flutter WebView shell + Vite PWA · Phase 4 · missing · open
+Pointed at a Vite dev server, the shell kept showing a weeks-old bundle: the dev server
+answers `sw.js` with the HTML fallback, so the service worker left from an earlier device
+session never updates. It looked like a real regression until the strings were grepped.
+→ references/platforms/webview-shell.md (device setup): serve a production build of the
+web app (`vite build` + `vite preview`, reversed to the shell's port) and relaunch two or
+three times after each rebuild; if a screen shows text missing from the codebase, suspect
+a stale service worker first.
+
+## 2026-10-12 · Android WebView shell · Phase 4 · missing · open
+Every file download in the shell (blob `<a download>`, a PDF library's `save()`) did
+nothing at all: no file, no toast, no error. Browser and desktop tours had passed them.
+It became a launch blocker. → webview-shell.md "What the shell adds": add file
+downloads/exports to the list; check the shell has a download or share handler and tap
+each export once on the device.
+
+## 2026-10-12 · Android WebView shell · Phase 4 · missing · open
+A release build has no CDP socket, but `uiautomator dump` exposed the WebView's text and
+bounds, enough to drive the whole tour with `input tap`/`input text` and assert screens
+by text. (Switch `checked` state is not carried; don't log it as an a11y bug.) → webview-
+shell.md device setup: use uiautomator + screencap when CDP isn't available.
+
+## 2026-10-12 · any WebView shell or mobile SPA · Phase 4 · missing · open
+A detail page flashed its empty state ("no items yet", totals 0) for 1-4 frames mid push
+transition. No screenshot ever catches it; `adb shell screenrecord` + ffmpeg at 30 fps,
+tiled around the tap, found it in the first recording. → screen-checklist.md (loading
+states) or webview-shell.md: record each main push/pop once and look at the frames
+between the skeleton and the data.
+
+## 2026-10-12 · Android WebView shell · Phase 4 · missing · open
+The keyboard item ("does not cover the focused field") passed, yet the problems were
+next to it: in a bottom sheet the keyboard pushed the amount and title off the top while
+an in-app keypad stayed on screen, and the IME's Enter/next key did nothing on
+single-field forms. → webview-shell.md "Keyboard": also check what else the keyboard
+pushes off screen, and what the IME action key does.
+
+## 2026-10-12 · Android WebView shell · Phase 4 · confirmed · open
+The device list held up on its first real run: bridge cancel path, back button (sheet →
+page → history root), app links cold+signed-out and warm, splash → first paint, push
+permission grant/deny/settings round trip. Also: leaving to another app (share to a
+messenger) lands back in that app's own history; return with `am start`, and delete
+screenshots that caught the user's personal notifications. → re-date the webview-shell.md
+header; add the return/privacy note to device setup.
