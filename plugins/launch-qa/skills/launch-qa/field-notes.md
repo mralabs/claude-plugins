@@ -96,3 +96,19 @@ browser's language, not the app's: "October 2026" on a Turkish UI. A tour whose 
 locale matches the app language never sees it. → references/platforms/web.md: "run the
 second-language pass with the browser locale set to the *other* language, and grep for
 locale-less `toLocale*String(undefined` / `Intl.*(undefined` calls."
+
+## 2026-10-12 · SPA with a CSS-grid desktop layout · Phase 3 · missing · open
+On desktop the worst break (a two-column page wider than the viewport, money column
+off-screen at the 1024 breakpoint) came from `fr` grid columns without `minmax(0, …)`:
+long unbreakable text in the seed widens the track. A per-route sweep at each breakpoint
+measuring `document.documentElement.scrollWidth` and elements past `innerWidth` found it
+in one pass; overriding `grid-template-columns` in the page confirmed the fix before
+logging. → references/platforms/web.md (desktop pass): run that sweep first, grep for
+`fr` grids without `minmax(0,`, and try the fix in-page so the finding carries it.
+
+## 2026-10-12 · any SPA · Phase 3 · missing · open
+The automated overflow check (leaf text with `scrollWidth > clientWidth` and clipped
+overflow) missed amounts spilling out of fixed-width stat tiles, because that text has
+`overflow: visible`; the user spotted it in a screenshot. → references/screen-checklist.md
+or tooling.md: also flag leaf text whose right edge passes its nearest card/tile
+container, and look at every screenshot rather than trusting the detector.
