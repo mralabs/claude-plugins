@@ -191,3 +191,11 @@ The coordinator's fix brief carried a fact from the QA log that was wrong about 
 ("days are stored at noon UTC"; the app stores local midnight). The fix agent caught it by
 reading the code. → "Fix and gap phases": the QA log describes symptoms; a fix agent
 verifies every claim about code (paths, lines, formats) against the code before acting.
+
+## 2026-10-12 · any repo, fixes delegated to subagents · Phase 5 · missing · open
+A fix phase run with every fix and review agent on the strongest model used about half
+of a subscription's quota in one session. Fix groups differ: rules and money math need
+the strongest model at high effort; copy, layout and their reviews do not; running a
+suite and reporting is mechanical. → "Fix and gap phases": the coordinator picks model
+and effort per delegated task by risk, says the choice when launching, and starts a new
+session per phase so its own re-read context stays small.
