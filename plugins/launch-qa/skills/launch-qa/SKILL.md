@@ -88,16 +88,23 @@ one phased card is enough; do not open a card per phase.
    phase should add one or only list the gaps.
 3. **QA seed.** Extend the existing seed or write one, behind a flag so the normal seed
    is unchanged. Cover:
-   - text at each field's max length
+   - text at each field's max length, built from (or asserted against) the app's own
+     length constants: a string a few characters short never tests the limit
    - very large and very small numbers, and every decimal/locale rule the app supports
    - one account per role
    - an empty account
    - an account stuck mid-onboarding (unverified, consent not given)
    - archived, closed and deleted records
+   - date-based schedules, if the app has them: starts on the 29th–31st, spans over
+     February and a leap year
    Write data the way the app writes it, so it passes the backend's own rules and
-   validation. A seed that bypasses those rules creates bugs that are not real. Leave
-   out data that needs live external services or background jobs; create it through
-   the UI during the tour. Run the seed and open the app to confirm the data renders.
+   validation. A seed that bypasses those rules creates bugs that are not real. Create
+   one record of each type through the UI and compare everything it wrote (side
+   records, subcollections, derived fields) with a seeded one before the tour.
+   Reference data that background jobs write in production (rates, generated
+   schedules) goes in as a fixture; reuse the E2E suite's fixture shape if there is
+   one. Leave out data that needs live external services; create it through the UI
+   during the tour. Run the seed and open the app to confirm the data renders.
    Run the existing seed first, before extending it: a pre-existing break is then
    told apart from the new data. A seed that fails against the current rules is itself
    a finding. Seeded accounts record every consent and onboarding step the app gates
@@ -115,11 +122,14 @@ Split by area (auth and home, then each feature) into sub-phases. Per screen, ru
 - Do the same action from two accounts or tabs at once.
 - Go offline in the middle of a save.
 - Double-click submit, and use back during a multi-step flow.
+- After a destructive or admin action, check its effect from the affected side: sign in
+  as that user, open the deleted record's URL. A success toast proves nothing.
 
 Tours only log findings; do not fix during a tour. The exception is a blocker that stops
 the tour itself: log it, fix it test-first, note the commit, and carry on.
 
-Tooling notes (screenshot locations, stale-state noise, switching saved settings):
+Tooling notes (screenshot locations, overflow sweep, stale-state noise, switching saved
+settings):
 `references/tooling.md`. Device and desktop setup: the platform file.
 
 ## Findings
@@ -149,8 +159,28 @@ user in the session report, not decided silently.
 
 - **Fixes:** one finding, one failing test first (unit or E2E), then the fix, then green.
   Follow the project's commit and review rules.
-- **Gaps:** E2E tests for the ★ flows in the coverage map first, then the rest. At the
-  end, every suite is green: unit, E2E, and any backend/security-rule or contract tests.
+- **Review:** an independent review after each fix group. Tell the reviewer to grep every
+  writer and caller of what changed (rules, shared helpers, stored fields), not only to
+  read the diff.
+- **Delegated fixes:** the QA log describes symptoms; a fix agent checks every claim about
+  the code (paths, formats, how values are stored) against the code before acting. One
+  writing agent per worktree at a time, or one worktree each; reviewers run read-only in
+  parallel. Commit with a pathspec (`git commit -- <paths>`) and check
+  `git show --stat HEAD`. Pick model and effort per task by risk (money math and
+  security rules: strongest; copy, layout and their reviews: mid; running a suite:
+  small), and name the choice when launching. Run each fix or gap phase in a session
+  of its own, so the coordinator's context stays small.
+- **Keep the QA branch in step with main.** Fixes pile up on the QA branch while other
+  work merges into main; where both touch the same files they diverge. At the start of
+  each fix or gap session, merge main into the QA branch. Before work started from main
+  touches files the QA branch changed, offer to merge the QA branch into main first,
+  under the project's merge rules.
+- **Gaps:** E2E tests for the ★ flows in the coverage map first, then the rest. The map
+  is stale by now: before writing a gap test, re-grep the current specs for the flow,
+  read the matching test body, and record "covered by <spec › title>" or the new test in
+  the log. A test that asserts on text with an open copy finding gets a note next to that
+  finding, so the fix updates both. At the end, every suite is green: unit, E2E, and any
+  backend/security-rule or contract tests (full-suite runs: `references/tooling.md`).
 
 ## End of every session
 

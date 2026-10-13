@@ -5,9 +5,10 @@
 A phased, multi-session QA job for apps with a web UI: SPA, SSR, PWA, a native WebView
 shell, or a Tauri/Electron desktop app. Run it before a launch or a major release.
 
-**Status: 0.x, experimental.** Phase 1 and the first mobile tour have run on one
-project. The device, desktop, fix and test-gap phases are specified but not yet proven.
-The platform files say which of their items are verified.
+**Status: 0.x, experimental.** Every phase has run once, on one project (a Vue SPA with
+an Android WebView shell): mobile and desktop browser tours, a device tour, fixes and test
+gaps. The SSR, PWA and Tauri/Electron items are specified but not yet proven. The
+platform files say which of their items are verified.
 
 ## What it does
 
@@ -15,7 +16,7 @@ The platform files say which of their items are verified.
 |---|---|
 | 1. Inventory | every route's flows, a map of which flows have E2E tests (risky untested ones starred), an edge-case seed |
 | 2+. Tours | each screen walked in a real browser or device, per a checklist (layout, states, text, numbers, theme, console, navigation, forms, a11y), plus permission and concurrency probes |
-| Fixes | blocker and major findings fixed, each with a failing test first |
+| Fixes | blocker and major findings fixed, each with a failing test first and an independent review per fix group; the QA branch is kept in step with main |
 | Test gaps | E2E tests for the starred flows |
 
 State lives in a **QA log**: a board card or `docs/qa/<date>-launch-qa.md`. Any session

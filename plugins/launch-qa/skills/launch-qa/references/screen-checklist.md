@@ -6,6 +6,8 @@ languages, a 360 px look) check only Layout (dark theme included) and Text.
 
 ## Layout
 - Nothing overflows or gets clipped at max-length text, 7+ digit amounts, long names.
+  Text that spills out of a fixed-width tile or card without being clipped counts too;
+  an automated check misses it (`references/tooling.md`), so look at every screenshot.
 - Truncation keeps the text identifiable. A row reduced to "Summer t…" when every row
   starts the same way is a finding.
 - Fixed bars (top, tab, FAB) never cover content or the last list item; safe areas hold.
@@ -14,10 +16,13 @@ languages, a 360 px look) check only Layout (dark theme included) and Text.
   are legible.
 
 ## States
-- Empty, filled, loading (skeleton, not a layout jump), error with a way to retry, offline.
+- Empty, filled, loading (skeleton, not a layout jump, and no flash of the empty state
+  before the data arrives), error with a way to retry, offline.
 - Every role and ownership state the app has, including a removed or downgraded user and
   a signed-out visitor, sees only what it should.
 - Pagination or "load more" works at the boundary.
+- Records one party writes and another approves: edit and delete them after approval.
+  The status resets, the other party is notified, and the history shows it.
 
 ## Text
 - No raw i18n keys, no untranslated strings, no mixed languages on one screen.
@@ -29,6 +34,8 @@ languages, a 360 px look) check only Layout (dark theme included) and Text.
   in input and display.
 - Thousands and decimal separators and date formats follow the active locale.
 - Totals and balances add up when you check them against the seed data by hand.
+- After editing or deleting a money record, every stored derived number on screen
+  (balance after, interest so far) matches a fresh computation.
 - "Today" and day boundaries are right in the user's time zone, not UTC.
 
 ## Console and network
@@ -44,6 +51,8 @@ languages, a 360 px look) check only Layout (dark theme included) and Text.
 ## Forms
 - Validation messages appear at the right moment, and length limits are enforced and
   visible.
+- Whitespace-only and leading/trailing-space input in every required text field. Check
+  how the saved value renders to other users, not only to its author.
 - Double submit creates one record. A save shows progress and disables the button.
 - After saving, the screen shows the new state without a manual reload.
 
