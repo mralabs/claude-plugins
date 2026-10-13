@@ -59,7 +59,7 @@ The skill is `disable-model-invocation`: it runs only when you type it, and its 
 
 ## Self-improvement
 
-Like `launch-qa`, each run ends with a retro on the skill itself. General lessons go to `skills/setup-hygiene/field-notes.md`, and "evolve setup-hygiene" folds them into the references on a branch.
+Like `launch-qa`, each run ends with a retro on the skill itself. General lessons go, on your OK, to a private inbox in your Claude config directory, `~/.claude/field-notes/setup-hygiene.md` (or under `$CLAUDE_CONFIG_DIR`), outside the plugin so they survive updates. "evolve setup-hygiene", run in a checkout of this repository, folds them into the references on a branch and records each decision in `skills/setup-hygiene/field-notes.md`.
 
 ## Origin
 

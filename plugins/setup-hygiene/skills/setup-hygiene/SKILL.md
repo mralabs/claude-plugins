@@ -133,9 +133,16 @@ For each approved finding, in the order that keeps the setup working:
 At the end of the run, ask about **this skill**: which instruction was wrong
 or missing, which detector cost time and found nothing, which fact in a
 `references/` file was stale. Propose general lessons to the owner as
-entries for `field-notes.md` next to this file (format at its top); write
-them there only on the owner's OK and when this skill's real path is a git
-checkout, and leave committing to that repo's rules. A run that ended at
-Step 5 still gives its retro in the report. Never edit SKILL.md or
-`references/` during an audit run; fold notes in only when the owner asks
-to "evolve setup-hygiene", on a branch, under the plugin repo's rules.
+entries in the format at the top of `field-notes.md` next to this file; on
+the owner's OK, append them to the owner's field-notes inbox,
+`$CLAUDE_CONFIG_DIR/field-notes/setup-hygiene.md` (default
+`~/.claude/field-notes/setup-hygiene.md`; create it with that header if it
+is missing). Never write inside this skill's own directory: an installed
+plugin is replaced on every update, and the repo copy of `field-notes.md` is
+the public record that only evolve writes. A run that ended at Step 5 still
+gives its retro in the report. Never edit SKILL.md or `references/` during
+an audit run; fold notes in only when the owner asks to "evolve
+setup-hygiene", on a branch, under the plugin repo's rules: fold each open
+inbox note, copy it into the repo's `field-notes.md` with no project name
+(that file is public), and mark it `folded <version>` or `rejected:
+<reason>` in both files.
