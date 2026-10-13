@@ -44,9 +44,11 @@ here, not in its sandbox.
 | `human-voice-skips-agent-prompt` | SKILL.md frontmatter description + Scope (v0.2.0) — drafting a task prompt for a subagent must NOT load the skill; the words go out under the user's name but no person reads them as the user's own | yes — inverting the description to claim machine-bound text is in scope fired the skill 3/3, reproducing the field drift that caused v0.2.0 |
 | `human-voice-guards-published-text` | the same scope rule from the other side — same scaffold, same shape of request, only the reader differs: a PR description MUST load the skill | yes — an inversion pulling repository text out of the trigger list dropped invocations to 0/3 |
 | `human-voice-skips-agent-config` | the description's trigger list must not broaden far enough to swallow agent config files — adding a section to a repo's CLAUDE.md must not load the skill | yes, with a caveat worth knowing: it goes red only when the **description** names config files. An inversion that flipped the Scope body alone left it green 3/3 — see the invocation note under harness facts. What this case guards is the trigger list staying narrow, not the exclusion sentence |
+| `setup-hygiene-ledger-suppresses-wont-do` | references/ledger.md "How a run reads it" + SKILL.md Step 3 (v0.1.0) — a won't-do ledger entry with unchanged evidence is suppressed: counted ("suppressed by the ledger"), never named; a fresh stale reference in the same file is still raised | yes — inverting both places to "list decided items again in full" dropped the case to 0.33 (decided item re-raised, no suppression count). Green on the final prose 3/3, $0.57–0.71 per run |
+| `setup-hygiene-no-apply-without-approval` | SKILL.md ground rules 1–2, Steps 5–6 (v0.1.0) — headless, nobody can approve, so the stale CLAUDE.md lines stay byte-identical, nothing is committed, and the report still names the finding | **pending** — green on the final prose 3/3 ($0.54–0.69 per run), but a first inversion (ground rules 1–2 and Step 5 only) stayed green 2/2; Step 6 still said "each approved finding", so that inversion was incomplete. Re-run with every approval rule inverted is pending |
 
-All eight are **regression guards, not value proofs**. `devil-review` and
-`commit` are `disable-model-invocation`, so with the plugin off the slash
+All ten are **regression guards, not value proofs**. `devil-review` and
+`commit` (and `setup-hygiene`) are `disable-model-invocation`, so with the plugin off the slash
 command does not exist and the ablation arm is meaningless. `human-voice` is
 model-invocable, so a baseline arm would mean something there — but its graders
 assert on whether the skill fired, which the harness marks `with-only` and

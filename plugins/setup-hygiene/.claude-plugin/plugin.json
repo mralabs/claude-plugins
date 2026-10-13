@@ -1,0 +1,10 @@
+{
+  "name": "setup-hygiene",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Audit an agent setup — global, project and its board — for stale, wasteful or contradictory pieces against today's vendor docs; evidence-backed proposals, applied only on the owner's approval, with a decision ledger.",
+  "author": {
+    "name": "mralabs",
+    "url": "https://github.com/mralabs"
+  }
+}

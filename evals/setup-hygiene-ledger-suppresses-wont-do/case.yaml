@@ -1,0 +1,52 @@
+schema_version: "1.1"
+name: setup-hygiene-ledger-suppresses-wont-do
+description: >
+  references/ledger.md "How a run reads it" (v0.1.0) — a finding the owner
+  already decided as won't-do, with unchanged evidence and an unfired revisit
+  trigger, is suppressed: counted, never shown. Re-raising decided items is
+  what makes an audit loop endless, which is the failure this skill exists to
+  stop. The paired stale reference proves the run still audits.
+
+  REGRESSION GUARD, not a value proof: /setup-hygiene is
+  disable-model-invocation, so with the plugin off the command does not exist.
+
+tags: [setup-hygiene, prose-invariant, regression-guard, ledger]
+plugins: ["../../plugins/setup-hygiene"]
+
+context:
+  scaffold_script: "./scaffold.sh"
+
+execution:
+  prompt: "/setup-hygiene project"
+  max_turns: 80
+  timeout_seconds: 1200
+  allowed_tools: [Bash, Read, Glob, Grep, Write, Edit, Skill, WebFetch, Task]
+
+runs: 3
+
+graders:
+  - type: regex
+    name: new-finding-reported
+    target: last_message
+    pattern: 'onboarding-guide'
+    match: contains
+
+  # The decided item is accounted for, not silently lost.
+  - type: regex
+    name: suppression-is-counted
+    target: last_message
+    pattern: 'suppress'
+    flags: "i"
+    match: contains
+
+  - type: regex
+    name: decided-finding-not-reraised
+    target: last_message
+    pattern: 'build-legacy'
+    match: not_contains
+
+expected_outcome: >
+  The report raises the missing docs/onboarding-guide.md and says one item
+  was suppressed by the ledger, without naming it. Any mention of
+  build-legacy in the final message — as a finding, a reminder or a listed
+  suppressed item — is the failure.

@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "mralabs Claude Code plugins",
-    "version": "1.4.0"
+    "version": "1.5.0"
   },
   "plugins": [
     {
@@ -55,6 +55,15 @@
         "name": "mralabs"
       },
       "source": "./plugins/launch-qa"
+    },
+    {
+      "name": "setup-hygiene",
+      "description": "Audit an agent setup — global, project and its board — for stale, wasteful or contradictory pieces against today's vendor docs; evidence-backed proposals, applied only on the owner's approval, with a decision ledger.",
+      "version": "0.1.0",
+      "author": {
+        "name": "mralabs"
+      },
+      "source": "./plugins/setup-hygiene"
     }
   ]
 }

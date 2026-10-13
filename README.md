@@ -14,6 +14,7 @@ Claude Code plugin marketplace by [mralabs](https://github.com/mralabs).
 /plugin install commit@mralabs
 /plugin install human-voice@mralabs
 /plugin install launch-qa@mralabs
+/plugin install setup-hygiene@mralabs
 ```
 
 ## Plugins
@@ -93,6 +94,19 @@ evolve launch-qa                    # fold collected field notes into the skill
 ```
 
 [Full documentation](plugins/launch-qa/)
+
+### setup-hygiene
+
+> *An agent setup goes stale quietly. This re-reads it.*
+
+Audits the agent setup at three scopes: user-global (`~/.claude`, `~/.codex`), one project (CLAUDE.md / AGENTS.md, `.claude/`, `REVIEW.md`, the verify recipe, memory) and its rigo board. It starts by re-reading the current vendor docs, so a pinned model or an outdated rule is judged against today rather than the model's training data. A staleness pass with eight detectors runs alongside checks for plugin overlap, review paths and dead hooks. Every finding comes with evidence and a concrete proposal. Nothing is applied until the owner approves it, and every decision goes into a ledger so the next run doesn't raise it again.
+
+```bash
+/setup-hygiene project        # the current repo
+/setup-hygiene all ~/code/app # global + project + its board
+```
+
+[Full documentation](plugins/setup-hygiene/)
 
 ## License
 
