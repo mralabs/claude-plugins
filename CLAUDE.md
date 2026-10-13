@@ -11,6 +11,7 @@ Collection of Claude Code plugins published via a marketplace manifest. Each plu
 - `plugins/<name>/agents/<worker>.md` — (optional) custom subagents for delegating isolated work
 - `.claude-plugin/marketplace.json` — root marketplace catalog listing all published plugins
 - `.githooks/pre-commit` — repo-local hook enforcing version drift checks (see below)
+- `.claude/hooks/field-notes-reminder.sh` — SessionStart hook counting open field notes (see "Self-improving skills")
 
 ## Plugin components
 
@@ -123,6 +124,14 @@ When making non-trivial changes to methodology, schemas, or domain checklists:
 5. Do NOT create a separate "v1.X.Y" + "v1.X.Y+1 self-review patch" sequence unless the self-review was done by a different reviewer or discovered issues after the fact.
 
 This is a learned practice: every release in this repo so far has benefited from applying the plugin's rules to its own changes before shipping.
+
+## Self-improving skills (field notes → evolve)
+
+`launch-qa` and `setup-hygiene` learn from real runs. Each run's retro appends general lessons to the owner's private inbox, `$CLAUDE_CONFIG_DIR/field-notes/<skill>.md` (default `~/.claude/field-notes/`), outside the plugin so installs and updates do not lose them. The `field-notes.md` inside each skill is the **public** record of what was decided, written only by an evolve pass.
+
+- **Reminder.** `.claude/hooks/field-notes-reminder.sh` runs at session start here and prints the open count per skill. When a skill has 5 or more open notes, offer the owner an evolve pass; do not start one unasked. The skills also suggest it in their own reports.
+- **Evolve** = the procedure in that skill's SKILL.md ("Evolve" / "Retro and evolve"), run on the owner's "evolve <skill>": a branch; for each open inbox note fold it into SKILL.md or `references/`, reject it with a reason, or keep it open (one project is weak evidence); copy every decided note into the repo `field-notes.md` in public form — stack, never product or project name, no paths, data or credentials, because this repo is public — and mark it `folded <version>` or `rejected: <reason>` in both files, never deleting one. Then the usual release rules: version bump in both manifests, self-review, guarded-prose evals when the change touches what an `evals/` case guards, owner OK before commit.
+- **A new self-improving plugin** copies the pattern: a public `field-notes.md` with the entry format at its top, a Retro section that writes to `$CLAUDE_CONFIG_DIR/field-notes/<skill>.md`, and an Evolve section. The hook counts every `*.md` in the inbox, so it needs no change if the entry format ends a heading with `· open` or has a `- status: open` line.
 
 ## Verified by hand once, guarded by CI after
 

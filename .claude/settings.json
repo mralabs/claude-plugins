@@ -2,5 +2,19 @@
   "enabledPlugins": {
     "skill-creator@claude-plugins-official": true,
     "radar@mralabs": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/field-notes-reminder.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }
