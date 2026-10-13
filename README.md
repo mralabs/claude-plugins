@@ -85,7 +85,7 @@ Style guard loaded before drafting any text a human will read as the user's own 
 
 > *Test the whole app before launch, and get better at it every time.*
 
-Phased, multi-session pre-launch QA for apps with a web UI (SPA, SSR, PWA, WebView shell, Tauri/Electron desktop): flow inventory and E2E coverage map, an edge-case seed, hands-on tours per platform, severity-ranked findings, test-first fixes. The QA log on a board card or in `docs/qa/` carries the job between sessions. Every session ends with a retro whose general lessons collect in `field-notes.md` until an evolve pass folds them in. Experimental (0.x).
+Phased, multi-session pre-launch QA for apps with a web UI (SPA, SSR, PWA, WebView shell, Tauri/Electron desktop): flow inventory and E2E coverage map, an edge-case seed, hands-on tours per platform, severity-ranked findings, test-first fixes. The QA log on a board card or in `docs/qa/` carries the job between sessions. Every session ends with a retro whose general lessons collect in a private inbox (`~/.claude/field-notes/launch-qa.md`) until an evolve pass folds them in. Experimental (0.x).
 
 ```bash
 /launch-qa                          # start: inventory, coverage map, QA seed

@@ -50,7 +50,7 @@
     {
       "name": "launch-qa",
       "description": "Phased, multi-session pre-launch QA for apps with a web UI — flow inventory, coverage map, edge-case seed, hands-on tours, severity-ranked findings, test-first fixes — that collects its own lessons from every run.",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "mralabs"
       },

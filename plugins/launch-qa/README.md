@@ -38,23 +38,23 @@ Do the next launch-QA phase
 
 Every session ends with a **retro**: the skill asks which of its instructions misled,
 what it had to discover on its own, which step was wasted, and which reference was
-stale. General lessons are appended to `skills/launch-qa/field-notes.md`; project
-specifics stay in the project's log.
+stale. General lessons are appended to a private inbox in your Claude config
+directory, `~/.claude/field-notes/launch-qa.md` (or under `$CLAUDE_CONFIG_DIR`); project
+specifics stay in the project's log. The inbox lives outside the plugin, so it survives
+plugin updates and works the same from an installed plugin or a checkout.
 
-The skill never edits its own instructions mid-job. An **evolve** pass, run on request,
-folds the open notes into `SKILL.md` and `references/`, or rejects them with a reason.
-The pass follows this repository's rules: a branch, review and a version bump.
-
-To collect notes, run the skill from a git checkout of this repository, e.g. symlink
-`~/.claude/skills/launch-qa` to `plugins/launch-qa/skills/launch-qa`. From an installed
-plugin cache it only reports its lessons and suggests opening an issue.
+The skill never edits its own instructions mid-job. An **evolve** pass, run on request in
+a checkout of this repository, folds the open inbox notes into `SKILL.md` and
+`references/`, or rejects them with a reason, and records each decision in
+`skills/launch-qa/field-notes.md`. The pass follows this repository's rules: a branch,
+review and a version bump.
 
 ## Files
 
 ```
 skills/launch-qa/
   SKILL.md                      the workflow
-  field-notes.md                lessons inbox (public: stack names only, no product data)
+  field-notes.md                public record of folded lessons (stack names only, no product data)
   references/
     screen-checklist.md         what to check on every screen
     qa-log-template.md          the QA log

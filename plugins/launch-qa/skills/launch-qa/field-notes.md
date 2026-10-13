@@ -1,13 +1,17 @@
-# Field notes — inbox for lessons from real QA runs
+# Field notes — lessons from real QA runs
 
 Every session ends with a retro (SKILL.md, "Retro"). Lessons that would help on any
-project are appended here. They do not change the skill by themselves. An "evolve" pass
-folds them into SKILL.md or `references/` with review and a version bump, then marks them
-`folded <version>` here. Entries are never deleted, so the reasoning stays traceable.
+project go to the user's private inbox, `$CLAUDE_CONFIG_DIR/field-notes/launch-qa.md`
+(default `~/.claude/field-notes/launch-qa.md`), which starts with this header. They do not
+change the skill by themselves. An "evolve" pass folds them into SKILL.md or `references/`
+with review and a version bump, and copies each decided note here, marked `folded
+<version>` or `rejected: <reason>`. This file is the public record of those decisions.
+Entries are never deleted, in either file, so the reasoning stays traceable.
 
 Rules for an entry:
 - Describe the stack, never the product. Write "Vue SPA + Firestore emulator", not the
-  app's name. No URLs, paths inside a project, data or credentials: this file is public.
+  app's name. No URLs, paths inside a project, data or credentials: the repo copy of
+  this file is public, and inbox notes are copied into it.
 - One lesson per entry, phrased as what the skill should say or do differently.
 - Say which kind it is:
   - **wrong:** an instruction misled

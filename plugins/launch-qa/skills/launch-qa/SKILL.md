@@ -209,12 +209,13 @@ At the end of every session, answer these about **this skill**, not the app:
 Sort each answer:
 - **Project-specific** (ports, accounts, quirks of this codebase): into the QA log's
   Environment section, or the project's own memory.
-- **General** (true for any project with this stack or platform): append an entry to
-  `field-notes.md`, next to this file, using the format and rules at its top. Find the
-  file through the real path of this skill's directory (`realpath`). Write there only
-  when that path is inside a git checkout you can commit to. If the skill runs from an
-  installed plugin cache, write nothing; give the lesson to the user and suggest an
-  issue on the plugin's repository instead.
+- **General** (true for any project with this stack or platform): append an entry to the
+  user's field-notes inbox, `$CLAUDE_CONFIG_DIR/field-notes/launch-qa.md` (default
+  `~/.claude/field-notes/launch-qa.md`), using the format and rules at the top of
+  `field-notes.md` next to this file. Create the inbox with that header if it is missing.
+  Never write inside this skill's own directory: an installed plugin is replaced on every
+  update, and the repo copy of `field-notes.md` is the public record that only evolve
+  writes. The inbox is the user's own file; still no credentials or personal data in it.
 
 Never edit SKILL.md or `references/` during a QA session. A changing instruction set
 mid-job makes the phases inconsistent. Changes reach them only through **evolve**.
@@ -224,16 +225,20 @@ Mention the number of new field notes in the session report, one line.
 ## Evolve: folding field notes into the skill
 
 Run only when the user asks for it ("evolve launch-qa", "launch-qa'yı güncelle"). Also
-suggest it in a session report once five or more notes are open.
+suggest it in a session report once five or more notes are open in the inbox.
 1. Work in the skill's source repository, on a branch, under that repository's rules
    (version bump, changelog or README, review).
-2. For each open note:
+2. For each open note in the inbox (`$CLAUDE_CONFIG_DIR/field-notes/launch-qa.md`) and in
+   the repo's `field-notes.md`:
    - fold it into the right section of SKILL.md or a reference file,
    - or reject it with a one-line reason (too project-specific, contradicted by another
      project, already covered),
    - or keep it open, because one project is not enough evidence for a general rule.
    Re-date the `verified:` header of any reference file you confirmed or changed.
-3. Mark each note `folded <version>` or `rejected: <reason>`. Never delete one.
+3. Copy every inbox note you decided on into the repo's `field-notes.md`, rewritten to
+   its public rules (stack, never product), marked `folded <version>` or
+   `rejected: <reason>`; mark the inbox entry the same way. Never delete a note in
+   either file.
 4. Keep SKILL.md lean. Platform or stack detail goes to `references/platforms/`. A
    stack seen on two projects earns its own platform file.
 
