@@ -59,10 +59,9 @@ Delegates commit message generation to a dedicated Haiku subagent running in a f
 
 ```bash
 /commit                    # long form
-/cc                        # short alias — same behavior
-/cc fix typo in readme     # optional hint — subagent still decides from diff
-/cc --pr                   # commit, push, open a PR (branch auto-created on default branch)
-/cc --merge                # --pr + squash merge + branch cleanup (also: --m, --prm)
+/commit fix typo in readme # optional hint — subagent still decides from diff
+/commit --pr               # commit, push, open a PR (branch auto-created on default branch)
+/commit --merge            # --pr + squash merge + branch cleanup (also: --m, --prm)
 ```
 
 [Full documentation](plugins/commit/)

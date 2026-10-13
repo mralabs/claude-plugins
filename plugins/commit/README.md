@@ -9,15 +9,12 @@ Writing a commit message is a small, structured task — classify the diff, pick
 ## Usage
 
 ```bash
-/commit                    # long form
-/cc                        # short alias — same behavior
-/cc fix the login bug      # optional hint — subagent still decides from the diff
-/cc --pr                   # commit, push, open a PR (branch auto-created if on default branch)
-/cc --merge                # everything --pr does, then squash-merge + branch cleanup
-/cc --m                    # short for --merge (also: --prm, --pr --m)
+/commit
+/commit fix the login bug  # optional hint — subagent still decides from the diff
+/commit --pr               # commit, push, open a PR (branch auto-created if on default branch)
+/commit --merge            # everything --pr does, then squash-merge + branch cleanup
+/commit --m                # short for --merge (also: --prm, --pr --m)
 ```
-
-Both commands do exactly the same thing. Pick whichever your fingers prefer.
 
 ## PR mode (`--pr` / `--merge`)
 
@@ -48,7 +45,7 @@ Guards: no GitHub remote → the PR steps are skipped and the summary says so; a
 12. **PR mode (opt-in)** — with `--pr`/`--merge`, pushes and opens a PR via `gh pr create --fill` (and squash-merges with `--merge`); see the PR mode section above.
 13. **Returns a one-line summary** — `<short-hash> <type>(<scope>): <subject>` to the main conversation, with ` — PR <url>` / ` — PR <url> merged` appended in PR mode.
 
-The `/cc fix the login bug` hint form feeds the hint to the subagent as intent context — it shapes classification and wording, but if it conflicts with what the diff shows, the diff wins.
+The `/commit fix the login bug` hint form feeds the hint to the subagent as intent context — it shapes classification and wording, but if it conflicts with what the diff shows, the diff wins.
 
 ## Conventional commit types (Angular convention — 11 types)
 
@@ -78,12 +75,12 @@ Classification hints the subagent applies:
 
 If a repo has its own commit message format documented in `CLAUDE.md` (e.g. requiring version numbers like `feat(plugin): v1.2.3 tagline`, or specific type meanings, or required body sections), the subagent reads those rules from context and **applies them instead of the Angular defaults**. The Angular rules are the fallback for repos without a documented convention.
 
-This means the same `/cc` command adapts per repo — no configuration needed.
+This means the same `/commit` command adapts per repo — no configuration needed.
 
 ## What it does NOT do
 
 - Ask you questions before committing (decides entirely from the diff)
-- Split unrelated changes into multiple commits (always exactly one commit per invocation — split by staging deliberately and running `/cc` per batch)
+- Split unrelated changes into multiple commits (always exactly one commit per invocation — split by staging deliberately and running `/commit` per batch)
 - Override your partial staging (staged changes present → only those get committed)
 - Commit files that look like secrets (untracked matches are excluded and reported; staged or content-embedded secrets abort the commit)
 - Commit untracked files without reading their content first
@@ -159,7 +156,7 @@ Context isolation is unaffected by any of these — even if the fork ends up on 
 
 ### Verifying post-invocation
 
-After running `/cc`, confirm which model actually handled the subagent by checking the subagent transcript:
+After running `/commit`, confirm which model actually handled the subagent by checking the subagent transcript:
 
 ```bash
 ls -lt ~/.claude/projects/*/*/subagents/ | head
@@ -185,7 +182,7 @@ This is a safety net, not a guarantee. Cases the plugin will NOT catch:
 - Uncommon file names the pattern list doesn't cover
 - Repo-specific conventions (a `vault/` directory, custom secret stores, sealed-secret files)
 
-**Always review `git status` before running `/cc` on sensitive repositories.** The plugin catches the common cases; you catch the rest. If you want to extend the pattern list for your own projects, edit the Step 3 section of `agents/commit-writer.md` — it's a single file.
+**Always review `git status` before running `/commit` on sensitive repositories.** The plugin catches the common cases; you catch the rest. If you want to extend the pattern list for your own projects, edit the Step 3 section of `agents/commit-writer.md` — it's a single file.
 
 ## Comparison with `commit-commands`
 
@@ -197,7 +194,6 @@ This is a safety net, not a guarantee. Cases the plugin will NOT catch:
 | Secrets detection | No | Yes |
 | Repo CLAUDE.md format override | No | Yes |
 | Auto-invocation by Claude | Possible | Disabled (`disable-model-invocation: true`) |
-| Short alias | No | `/cc` |
 
 ## File layout
 
@@ -206,10 +202,8 @@ plugins/commit/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── skills/
-│   ├── commit/
-│   │   └── SKILL.md          # /commit entry point, forks into commit-writer
-│   └── cc/
-│       └── SKILL.md          # /cc alias, same fork target
+│   └── commit/
+│       └── SKILL.md          # /commit entry point, forks into commit-writer
 └── agents/
     └── commit-writer.md      # Haiku subagent — all logic lives here
 ```

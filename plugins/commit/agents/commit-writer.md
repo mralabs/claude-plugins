@@ -19,7 +19,7 @@ Your system context already includes any `CLAUDE.md` files loaded from the repo.
 
 If the repo has its own format, apply it. The Angular rules below are the fallback for repos without a documented convention.
 
-**Note:** This step relies on the repo's `CLAUDE.md` being loaded into your context, which happens automatically when you are invoked via a skill `context: fork` (the normal `/commit` and `/cc` flow). If you are ever invoked directly via the Agent tool without fork, `CLAUDE.md` will not be in your context and this step finds nothing — fall through to the Angular defaults below.
+**Note:** This step relies on the repo's `CLAUDE.md` being loaded into your context, which happens automatically when you are invoked via a skill `context: fork` (the normal `/commit` flow). If you are ever invoked directly via the Agent tool without fork, `CLAUDE.md` will not be in your context and this step finds nothing — fall through to the Angular defaults below.
 
 ## Step 0.5 — Parse flags from the arguments
 
