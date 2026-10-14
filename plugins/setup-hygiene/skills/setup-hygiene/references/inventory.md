@@ -11,7 +11,7 @@ them for before/after.
   changes you did not make belong to another session. Never stage, revert,
   format or "clean up" them; note them in the report.
 - A plan that edits a repo with someone else's dirty checkout runs in a
-  detached worktree off `origin/<main>` (verified 2026-10-13: fairsettle's
+  detached worktree off `origin/<main>` (verified 2026-10-13: a web app's
   CLAUDE.md fix went in that way with the other session's checkout untouched).
 
 ## Scope: global
@@ -69,6 +69,9 @@ them for before/after.
   `--all`) — real invocations from transcripts: slash commands typed, Skill
   calls, subagent types, MCP servers. A plugin that is listed but never
   called is a candidate; one that is called is a question, not a cut.
+  Plugin rows carry the plugin's state today (`[enabled]`, `[disabled]`,
+  `[not in settings]` = removed, or a built-in namespace). A count for a
+  disabled plugin is history, not a review path.
 
 ## Delegation
 

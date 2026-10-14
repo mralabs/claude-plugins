@@ -33,7 +33,7 @@ Append entries; never rewrite another run's entry except its `status` line.
 - fingerprint: <what the evidence looked like, short: the quoted line, the value, the count>
 - applied: <commit sha | "settings edit, backup <path>" | —>
 - reason: <won't-do / later: the owner's reason>
-- revisit when: <trigger, e.g. "a new Opus release", "pylix adopts Vue", 2027-01-01>
+- revisit when: <trigger, e.g. "a new Opus release", "the project adopts Vue", 2027-01-01>
 ```
 
 `<id>` is stable across runs: `<detector>-<subject slug>`, e.g.

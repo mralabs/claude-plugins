@@ -1,7 +1,8 @@
 # Staleness pass — eight detectors
 
 verified: 2026-10-13. Every detector here was found by hand in the
-2026-10-13 hygiene pass (rigo, fairsettle, the global setup and 21 projects).
+2026-10-13 hygiene pass (a desktop app, a web app, the global setup and 21
+projects).
 
 A setup goes stale silently: a rule is right on the day it is written, the
 world moves, and nothing re-reads it. The trigger case: "Plan = fable,
@@ -69,6 +70,9 @@ servers, settings keys, URLs to internal docs, board card ids.
 
 **How to check, by kind:**
 - paths: `git ls-files | grep -F` or `test -e`; symbols: `git grep -n`.
+  A regex over backticked or linked paths misses ASCII directory trees:
+  also take each `├──` / `└──` entry, rebuild its path from its parent
+  entries (indentation depth), and `test -e` each one.
 - npm scripts: the package's `package.json`; commands in a monorepo resolve
   per package.
 - skills / slash commands / subagents: installed plugin dirs, user and

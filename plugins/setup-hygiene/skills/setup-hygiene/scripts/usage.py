@@ -6,6 +6,12 @@ Usage: usage.py [PROJECT_DIR | --all] [--since YYYY-MM-DD] [--json]
 Counts real invocations, never tool listings: Skill tool calls (by skill),
 Agent/Task calls (by subagent_type), MCP tool calls (by server), and slash
 commands the user typed. Subagent transcripts are included. Read-only.
+
+Each plugin-qualified row (`plugin:name`, or an MCP server `plugin_<plugin>_*`)
+is marked with the plugin's enabled state today, from the local, project and
+user settings in that precedence; user settings are always read, and --all
+reads only them (it has no single project). A count for a plugin that is now
+disabled is history, not a live path.
 """
 import json
 import re
@@ -15,11 +21,51 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECTS = Path.home() / ".claude/projects"
+USER_SETTINGS = Path.home() / ".claude/settings.json"
 CMD = re.compile(r"<command-name>/?([^<\s]+)</command-name>")
 
 
 def project_key(path):
     return re.sub(r"[^A-Za-z0-9]", "-", str(Path(path).resolve()))
+
+
+def enabled_plugins(project):
+    """Plugin name -> True/False, local > project > user; any marketplace enabled wins."""
+    files = [USER_SETTINGS]
+    if project:
+        files += [Path(project) / ".claude/settings.json", Path(project) / ".claude/settings.local.json"]
+    state = {}
+    for f in files:  # later files override earlier ones
+        try:
+            plugins = json.loads(f.read_text()).get("enabledPlugins") or {}
+        except (OSError, ValueError, AttributeError):
+            continue
+        scope = {}
+        for key, on in plugins.items():
+            name = key.split("@", 1)[0]
+            scope[name] = scope.get(name, False) or bool(on)
+        state.update(scope)
+    return state
+
+
+def plugin_of(kind, key, known):
+    """The plugin a row belongs to, or None for built-in / user / project items."""
+    if kind == "mcp":
+        if not key.startswith("plugin_"):
+            return None
+        rest = key[len("plugin_"):]
+        hits = [p for p in known if rest == p or rest.startswith(p + "_")]
+        return max(hits, key=len) if hits else rest.split("_", 1)[0]
+    if kind in ("skill", "agent", "slash") and ":" in key:
+        return key.split(":", 1)[0]
+    return None
+
+
+def mark(kind, key, state):
+    plugin = plugin_of(kind, key, state)
+    if plugin is None:
+        return None
+    return {True: "enabled", False: "disabled"}.get(state.get(plugin), "not in settings")
 
 
 def arg(flag):
@@ -33,10 +79,11 @@ def main():
     since = arg("--since")
     since_ts = datetime.fromisoformat(since).replace(tzinfo=timezone.utc).timestamp() if since else 0
     positional = [a for a in sys.argv[1:] if not a.startswith("--") and a != since]
-    if "--all" in sys.argv:
+    project = None if "--all" in sys.argv else (positional[0] if positional else ".")
+    if project is None:
         dirs = [d for d in PROJECTS.iterdir() if d.is_dir()]
     else:
-        d = PROJECTS / project_key(positional[0] if positional else ".")
+        d = PROJECTS / project_key(project)
         if not d.is_dir():
             sys.exit(f"no transcripts at {d}")
         dirs = [d]
@@ -90,18 +137,28 @@ def main():
                     counts[kind][key] += 1
                     sessions[f"{kind}:{key}"].add(sid)
 
+    state = enabled_plugins(project)
     if "--json" in sys.argv:
-        print(json.dumps({k: {n: {"calls": c, "sessions": len(sessions[f"{k}:{n}"])}
-                              for n, c in v.items()} for k, v in counts.items()}
-                         | {"_sessions": n_sessions}, indent=1))
+        out = {}
+        for k, v in counts.items():
+            out[k] = {}
+            for n, c in v.items():
+                row = {"calls": c, "sessions": len(sessions[f"{k}:{n}"])}
+                m = mark(k, n, state)
+                if m:
+                    row["plugin_state"] = m
+                out[k][n] = row
+        print(json.dumps(out | {"_sessions": n_sessions}, indent=1))
         return
     print(f"sessions scanned: {n_sessions}" + (f" (since {since})" if since else ""))
+    print("plugin state: " + ("user settings only" if project is None else "local > project > user settings"))
     for kind in ("slash", "skill", "agent", "mcp", "tool"):
         if not counts[kind]:
             continue
         print(f"\n{kind}:  calls  sessions")
         for name, c in counts[kind].most_common(40 if kind != "tool" else 15):
-            print(f"  {c:>6}  {len(sessions[f'{kind}:{name}']):>6}  {name}")
+            m = mark(kind, name, state)
+            print(f"  {c:>6}  {len(sessions[f'{kind}:{name}']):>6}  {name}" + (f"  [{m}]" if m else ""))
 
 
 if __name__ == "__main__":

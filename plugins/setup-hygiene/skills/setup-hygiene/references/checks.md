@@ -19,7 +19,7 @@ Same shape as the staleness detectors: look for → check → traps → proposal
 - **Use:** `usage.py` over the projects that enable the plugin. Count real
   calls (Skill / Agent / MCP tool use, typed slash commands), never the
   listing. Listed but 0 calls → candidate to disable. Called often → ask;
-  usage is the owner's evidence, not a verdict (on 2026-10-13 fairsettle had
+  usage is the owner's evidence, not a verdict (on 2026-10-13 a web app had
   105 calls to a plugin reviewer the global audit had marked "overlap").
 - **Placement:** a stack-specific plugin (Nuxt/Vue skills, an MCP-server dev
   kit) enabled user-wide loads in every unrelated project. Propose project
@@ -27,7 +27,7 @@ Same shape as the staleness detectors: look for → check → traps → proposal
 - **Leftovers:** disabled but installed plugins, marketplaces with nothing
   enabled, stale per-project install records. Before proposing an uninstall,
   check every project's settings for a per-project enable (2026-10-13:
-  playwright was disabled globally but enabled in fairsettle), and whether
+  playwright was disabled globally but enabled in one project), and whether
   the capability comes from elsewhere too (the context7 MCP server stayed
   connected after its plugin was removed).
 - **Per-session cost beyond listings:** plugin hooks that run on every
@@ -58,7 +58,7 @@ Trap: a plugin agent cited by name in project rules (e.g.
   skills do not count. So `.claude/skills/verify/SKILL.md` must be the LIGHT
   per-change recipe (how to start and drive the app, the quick checks), and a
   project or personal `simplify` skill must be cheap enough to run on every
-  commit. A heavier task-level method lives under another name (fairsettle:
+  commit. A heavier task-level method lives under another name (one web app:
   `verify` = recipe, `verify-task` = method).
 - Missing recipe → propose one written with bundled `/verify` or
   `/run-skill-generator` (Step 0: confirm they still exist), not by hand.
@@ -72,6 +72,12 @@ Trap: a plugin agent cited by name in project rules (e.g.
   in an npm project, and a single command is wrong in a monorepo).
 - Board implement / verify prompts name the same command (D5 if they differ).
 - Run it once (or `--help` / dry) to prove it exists; a missing script is D3.
+- When a run edits a checks/commands list, run every listed command once,
+  exactly as written, before the run ends. A row that does not run as
+  written (a tool not installed locally; compose or proxy-config validation
+  that needs CI's preparation: placeholder `${VAR:?}` values, every profile,
+  a rendered config) is made runnable as written, or says in one clause
+  what it needs.
 
 ## C5. Settings leftovers
 

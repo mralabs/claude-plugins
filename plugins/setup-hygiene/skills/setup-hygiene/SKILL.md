@@ -106,7 +106,9 @@ For each approved finding, in the order that keeps the setup working:
 4. Prove it: re-run the detector that found it, parse edited JSON, run the
    hook with its payloads, run the project's checks after instruction or
    config changes. A check that fails on files you did not touch (another
-   session's work) is reported with that attribution, not fixed.
+   session's work) is reported with that attribution, not fixed. A change to
+   a documented checks/commands list runs every listed command once, as
+   written, before the run ends (`references/checks.md` C4).
 5. Commit only under the target repo's own rules (its commit format, its
    review-before-commit rule, explicit staging). Before committing, check
    `git diff --cached --stat` names only your files. A repo hook that blocks

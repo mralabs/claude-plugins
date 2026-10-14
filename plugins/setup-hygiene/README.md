@@ -17,7 +17,7 @@ An agent setup goes stale quietly. A rule is right the day it's written; then a 
 
 0. **Today's facts.** It fetches the current model lineup, the Claude Code changelog and the relevant doc pages and writes a dated facts sheet. Staleness is judged against that sheet, never against training data. When a fetch fails, findings that depend on it are marked unverified and nothing based on them is applied.
 1. **Ledger.** It reads earlier decisions.
-2. **Inventory**, with two bundled scripts: `loaded_cost.py` (what a session loads before the first prompt; matched rigo's own instruction lint to the char) and `usage.py` (real skill, subagent, MCP and slash-command calls from transcripts, not tool listings).
+2. **Inventory**, with two bundled scripts: `loaded_cost.py` (what a session loads before the first prompt; matched rigo's own instruction lint to the char) and `usage.py` (real skill, subagent, MCP and slash-command calls from transcripts, not tool listings; each plugin row is marked enabled or disabled today, so a disabled plugin's count reads as history).
 3. **Findings.** The staleness pass and the setup checks run, then the ledger filters the results.
 4. **Report**, saved to `~/.claude/audits/<date>/`. Every finding has evidence (`path:line`, command output) and a concrete proposal, and findings are grouped for approval (safe / behaviour change / needs a decision).
 5. **Ask.** It waits for the owner. Without an answer, nothing is applied.
@@ -63,4 +63,4 @@ Like `launch-qa`, each run ends with a retro on the skill itself. General lesson
 
 ## Origin
 
-Extracted from a manual hygiene pass on 2026-10-13 over rigo, fairsettle, the global setup and 21 projects. The mistakes of that pass's first audits are written into the references as traps: a proposed settings move the docs rule out, permission patterns deduplicated by eye, a stale file that was still linked from the docs, a dead hook whose fix would have reformatted a hundred files.
+Extracted from a manual hygiene pass on 2026-10-13 over a desktop app, a web app, the global setup and 21 projects. The mistakes of that pass's first audits are written into the references as traps: a proposed settings move the docs rule out, permission patterns deduplicated by eye, a stale file that was still linked from the docs, a dead hook whose fix would have reformatted a hundred files.
